@@ -26,10 +26,10 @@ export class CallbackClient {
     if (Buffer.byteLength(body)>262144) throw new Failure('payload_too_large');
     const destination=this.validate(url), signedAt=new Date(now);
     try {
-      const response=await this.transport(destination,{method:'POST',redirect:'error',signal:AbortSignal.timeout(10000),
+      const response=await this.transport(destination,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(10000),
         headers:{'Content-Type':'application/json','webhook-id':id,'webhook-timestamp':String(Math.floor(now/1000)),
           'webhook-signature':new Webhook(secret).sign(id,signedAt,body),'X-MCP-Subscription-Id':subscription},body});
-      if (response.status>=300 && response.status<400) throw new Failure('callback_redirect_blocked');
+      if (response.status>=300 && response.status<400) { await response.body?.cancel(); throw new Failure('callback_redirect_blocked'); }
       return response;
     } catch(e) { throw e instanceof Failure ? e : new Failure('callback_transport_failed'); }
   }

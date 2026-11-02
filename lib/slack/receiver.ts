@@ -19,7 +19,13 @@ export function createBolt(env: Env) {
   const receiver = new FetchReceiver();
   const app = new App({receiver, logger:quietLogger,
     authorize:async () => ({botToken:env.SLACK_BOT_TOKEN, teamId:env.SLACK_TEAM_ID, botId:env.SLACK_BOT_ID, botUserId:env.SLACK_BOT_USER_ID}),
-    clientOptions:{retryConfig:{retries:0}, rejectRateLimitedCalls:true, timeout:8000},
+    clientOptions:{retryConfig:{retries:0}, rejectRateLimitedCalls:true, timeout:8000,
+      // Workers rejects redirect:'error'. Manual mode plus rejection never forwards credentials.
+      fetch:async(input,init)=>{
+        const response=await globalThis.fetch(input,{...init,redirect:'manual'});
+        if (response.status>=300 && response.status<400) { await response.body?.cancel(); throw new Failure('slack_redirect_blocked'); }
+        return response;
+      }},
   });
   app.error(async () => { throw new Failure('acceptance_failed'); });
   app.use(async ({body}) => { await acceptEvent(env, body); });

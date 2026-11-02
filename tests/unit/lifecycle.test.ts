@@ -98,7 +98,7 @@ describe('security boundaries',()=>{
   });
   it('fails closed without verified callback origins and blocks redirects',async()=>{
     expect(()=>callbackUrl('https://receiver.example.com/x','')).toThrow('callback_policy_unconfigured');
-    const callback=new CallbackClient('https://receiver.example.com',async(_url,init)=>{expect(init.redirect).toBe('error');return new Response(null,{status:302});});
+    const callback=new CallbackClient('https://receiver.example.com',async(_url,init)=>{expect(init.redirect).toBe('manual');return new Response(null,{status:302});});
     await expect(callback.verify('https://receiver.example.com/x',secret,'sub')).rejects.toThrow('callback_redirect_blocked');
     for(const key of ['bad','whsec_YQ==',`whsec_${Buffer.alloc(65).toString('base64')}`]) expect(()=>validateSecret(key)).toThrow();
   });

@@ -11,6 +11,11 @@ const runtime=new Miniflare({modules:modules.map(file=>({type:'ESModule',path:re
   d1Databases:['DB'],d1Persist:resolve('.wrangler/smoke',crypto.randomUUID()),
   bindings:{OWNER_USER_ID:'owner',SITES_IDENTITY_VERIFIED:'true',SLACK_BOT_TOKEN:'synthetic-token',SLACK_SIGNING_SECRET:'synthetic-signing-secret',SLACK_TEAM_ID:'TTEST',SLACK_BOT_ID:'BBOT',SLACK_BOT_USER_ID:'UBOT',SLACK_APP_ID:'ATEST'},
   assets:{directory:resolve('dist/client'),routerConfig:{has_user_worker:true}},
+  outboundService:async request=>{
+    assert.equal(new URL(request.url).origin,'https://slack.com');
+    assert.equal(new URL(request.url).pathname,'/api/auth.test');
+    return Response.json({ok:true,team_id:'TTEST',user_id:'UBOT',bot_id:'BBOT'});
+  },
 });
 try {
   const health=await runtime.dispatchFetch('http://localhost/health');assert.equal(health.status,200);assert.equal((await health.json()).service,'SlackDot');
@@ -28,5 +33,8 @@ try {
   const fixture=JSON.parse(readFileSync('tests/fixtures/mcp-discover.json','utf8'));
   const discovery=await runtime.dispatchFetch('http://localhost/mcp',{method:'POST',headers:{...fixture.headers,'oai-authenticated-user-id':'owner'},body:JSON.stringify(fixture.request)});
   assert.equal(discovery.status,200);assert.deepEqual((await discovery.json()).result.capabilities,fixture.expectedResult.capabilities);
+  const infoBody={...fixture.request,method:'tools/call',params:{...fixture.request.params,name:'slack_get_connection_info',arguments:{}}};
+  const info=await runtime.dispatchFetch('http://localhost/mcp',{method:'POST',headers:{...fixture.headers,'Mcp-Method':'tools/call','Mcp-Name':'slack_get_connection_info','oai-authenticated-user-id':'owner'},body:JSON.stringify(infoBody)});
+  const infoResult=await info.json();assert.equal(infoResult.result.isError,undefined,JSON.stringify(infoResult));
   console.log(JSON.stringify({result:'PASS',checks:['bundled Worker health','owner authorization','D1 migration/readback','Bolt signed ingress','MCP SDK discovery'],ingress_ms:Math.round(performance.now()-start)}));
 } finally {await runtime.dispose();}
