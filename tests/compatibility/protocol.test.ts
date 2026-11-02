@@ -1,13 +1,47 @@
-import { describe,it,expect } from 'vitest';
+import { describe,it,expect,vi } from 'vitest';
 import { handleMcp } from '../../lib/mcp/server';
 import { route } from '../../lib/runtime/router';
 import { database } from '../support/database';
-import { env } from '../support/fixtures';
+import { env,subscription,secret } from '../support/fixtures';
+import { SlackService } from '../../lib/slack/service';
+import { eventResponseSummary } from '../../lib/mcp/diagnostics';
 export function rpc(method:string,params:Record<string,unknown>={},principal='owner') {
   return new Request('https://site.example/mcp',{method:'POST',headers:{'content-type':'application/json',Accept:'application/json','Mcp-Method':method,...(typeof params.name==='string'?{'Mcp-Name':params.name}:{}),'MCP-Protocol-Version':'2026-07-28','oai-authenticated-user-id':principal},
     body:JSON.stringify({jsonrpc:'2.0',id:1,method,params:{...params,_meta:{'io.modelcontextprotocol/protocolVersion':'2026-07-28','io.modelcontextprotocol/clientInfo':{name:'compatibility-test',version:'1'},'io.modelcontextprotocol/clientCapabilities':{}}}})});
 }
 describe('SDK protocol contract',()=>{
+  it('accepts native lifetime requests and reports callback policy failures without leaking secrets',async()=>{
+    const e=env(database().db);
+    // An unset Sites variable is absent, not necessarily an empty string.
+    delete (e as Partial<typeof e>).CALLBACK_ALLOWED_ORIGINS;
+    const access=vi.spyOn(SlackService.prototype,'access').mockResolvedValue(undefined);
+    const logs=vi.spyOn(console,'info').mockImplementation(()=>{});
+    try {
+      const input={...subscription(),ttlMs:null};input.delivery.url='https://receiver.example.com/private-callback?token=synthetic-sensitive';
+      const body=await (await handleMcp(rpc('events/subscribe',input),e)).json() as any;
+      expect(body.error.code).toBe(-32015);expect(body.error.data.reason).toBe('callback_policy_unconfigured');
+      const rows=logs.mock.calls.map(([s])=>JSON.parse(s));
+      expect(rows).toContainEqual(expect.objectContaining({component:'mcp_event_response',outcome:'rpc_error',reason:'callback_policy_unconfigured'}));
+      expect(rows).toContainEqual(expect.objectContaining({component:'mcp_event_request',ttl_ms_state:'null',callback_origin_candidate:'https://receiver.example.com'}));
+      const logged=JSON.stringify(rows);
+      for(const sensitive of [secret,'private-callback','synthetic-sensitive','synthetic-token']) expect(logged).not.toContain(sensitive);
+      const stopped=await (await handleMcp(rpc('events/unsubscribe',{name:input.name,arguments:input.arguments,
+        delivery:{mode:'webhook',url:input.delivery.url}}),e)).json() as any;
+      expect(stopped.error).toBeUndefined();expect(stopped.result).toMatchObject({});
+    } finally {access.mockRestore();logs.mockRestore();}
+  });
+  it('sanitizes schema diagnostics and never reflects arbitrary error messages or property names',async()=>{
+    const logs=vi.spyOn(console,'info').mockImplementation(()=>{});
+    try {
+      const input={...subscription(),ttlMs:-1,'sensitive-extra-key':'sensitive-extra-value'};
+      const body=await (await handleMcp(rpc('events/subscribe',input),env(database().db))).json() as any;
+      expect(body.error.data.reason).toBe('invalid_subscription_arguments');
+      const logged=JSON.stringify(logs.mock.calls);
+      for(const sensitive of ['sensitive-extra-key','sensitive-extra-value',secret]) expect(logged).not.toContain(sensitive);
+      expect(logged).toContain('ttlMs');
+      expect(eventResponseSummary({error:{code:-32603,message:'secret message',data:{reason:'secret reason'}}})).toEqual({outcome:'rpc_error',error_code:-32603,reason:'other'});
+    } finally {logs.mockRestore();}
+  });
   it('advertises tools and webhook events through SDK modern discovery',async()=>{
     const e=env(database().db);
     const response=await handleMcp(rpc('server/discover'),e);

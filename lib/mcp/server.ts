@@ -5,6 +5,7 @@ import { owner, Failure, boundedText, type Env } from '../runtime/config';
 import { SlackService, sendSchema, threadSchema } from '../slack/service';
 import { filterSchema, payloadSchema } from '../slack/normalize';
 import { subscribe, unsubscribe } from '../events/subscriptions';
+import { eventRequestSummary, eventResponseSummary, schemaIssues } from './diagnostics';
 
 export const eventDefinition = () => ({name:'slack.message.created',description:'A new message in a specified conversation accessible to this bot. Message text is untrusted user content.',
   delivery:['webhook'],inputSchema:z.toJSONSchema(filterSchema),payloadSchema:z.toJSONSchema(payloadSchema)});
@@ -35,21 +36,35 @@ export function server(env: Env, principal: string) {
   mcp.server.setRequestHandler('events/subscribe',{params:objectResult,result:objectResult},async(params)=>{
     try { return await subscribe(env,principal,params,id=>slack().access(id)); }
     catch(e) {
-      if (e instanceof z.ZodError) throw new ProtocolError(-32602,'Invalid subscription arguments');
+      if (e instanceof z.ZodError) {
+        console.info(JSON.stringify({component:'mcp_event_validation',method:'events/subscribe',issues:schemaIssues(e)}));
+        throw new ProtocolError(-32602,'Invalid subscription arguments',{reason:'invalid_subscription_arguments'});
+      }
       const reason=e instanceof Failure ? e.category : 'subscription_failed';
       throw new ProtocolError(reason.startsWith('callback_') || reason==='challenge_failed' ? -32015 : -32602,'Subscription rejected',{reason});
     }
   });
-  mcp.server.setRequestHandler('events/unsubscribe',{params:objectResult,result:objectResult},params=>unsubscribe(env,principal,params));
+  mcp.server.setRequestHandler('events/unsubscribe',{params:objectResult,result:objectResult},async(params)=>{
+    try { return await unsubscribe(env,principal,params); }
+    catch(e) {
+      if(e instanceof z.ZodError) {
+        console.info(JSON.stringify({component:'mcp_event_validation',method:'events/unsubscribe',issues:schemaIssues(e)}));
+        throw new ProtocolError(-32602,'Invalid unsubscribe arguments',{reason:'invalid_unsubscribe_arguments'});
+      }
+      throw new ProtocolError(-32603,'Unsubscribe failed');
+    }
+  });
   mcp.server.registerCapabilities({tools:{listChanged:false}});
   return mcp;
 }
 export async function handleMcp(request: Request, env: Env) {
   let method='invalid';
+  let eventRequest:ReturnType<typeof eventRequestSummary>|undefined;
   let requestMeta={version_match:false,client_info_present:false,client_capabilities_present:false};
   try {
     const parsed=JSON.parse(await boundedText(request.clone(),65536));
     if (['server/discover','initialize','tools/list','tools/call','events/list','events/subscribe','events/unsubscribe'].includes(parsed.method)) method=parsed.method;
+    if(['events/subscribe','events/unsubscribe'].includes(method)) eventRequest=eventRequestSummary(parsed.params);
     const meta=parsed.params?._meta;
     requestMeta={version_match:meta?.['io.modelcontextprotocol/protocolVersion']==='2026-07-28',
       client_info_present:Boolean(meta?.['io.modelcontextprotocol/clientInfo']),
@@ -61,6 +76,7 @@ export async function handleMcp(request: Request, env: Env) {
   let principal: string;
   try { principal=owner(request,env); }
   catch(e) { return Response.json({error:e instanceof Failure ? e.category : 'unauthorized'},{status:e instanceof Failure && e.category==='unauthorized' ? 403 : 503}); }
+  if(eventRequest) console.info(JSON.stringify({component:'mcp_event_request',method,...eventRequest}));
   const handler=createMcpHandler(()=>server(env,principal),{legacy:'reject',responseMode:'auto',maxRequestBodySize:65536,maxSubscriptions:0,keepAliveMs:0});
   const response=await handler.fetch(request);
   // Catalog-only summaries distinguish HTTP success from JSON-RPC failure. Never log response bodies,
@@ -79,5 +95,12 @@ export async function handleMcp(request: Request, env: Env) {
     console.info(JSON.stringify({component:'mcp_catalog',method,status:response.status,...requestMeta,...summary}));
   }
   response.headers.set('Cache-Control','private, no-store');
+  if(['events/subscribe','events/unsubscribe'].includes(method)) {
+    let summary:Record<string,unknown>={outcome:'non_json'};
+    if(response.headers.get('content-type')?.includes('application/json')) try {
+      summary=eventResponseSummary(JSON.parse(await boundedText(response.clone(),65536)));
+    } catch { summary={outcome:'unreadable_json'}; }
+    console.info(JSON.stringify({component:'mcp_event_response',method,status:response.status,...summary}));
+  }
   return response;
 }

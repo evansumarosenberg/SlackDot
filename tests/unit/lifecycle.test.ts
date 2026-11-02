@@ -15,6 +15,29 @@ const verified=()=>new CallbackClient('https://receiver.example.com',async(_url,
 const count=(sqlite:any,table:string)=>sqlite.prepare(`SELECT count(*) n FROM ${table}`).get().n;
 
 describe('durable event lifecycle',()=>{
+  it.each([undefined,null,1000,172800000])('bounds requested lifetime %s by the server maximum',async(ttlMs)=>{
+    const {db,sqlite}=database(), e=env(db);
+    const result=await subscribe(e,'owner',{...subscription(),ttlMs},access,verified(),1000);
+    const expires=1000+Math.min(ttlMs??86400000,86400000);
+    expect(result.refreshBefore).toBe(new Date(expires).toISOString());
+    expect(sqlite.prepare('SELECT expires_at FROM subscriptions').get()?.expires_at).toBe(expires);
+  });
+  it('unsubscribes by documented canonical identity without affecting another owner or filter',async()=>{
+    const {db,sqlite}=database(),e=env(db),args={conversation_id:'CTEST',thread_ts:'1793640000.123456'};
+    const first=await subscribe(e,'owner',subscription(args),access,verified(),1000);
+    await subscribe(e,'owner',subscription(),access,verified(),1000);
+    await acceptEvent(e,event(),2000);
+    const stop={name:'slack.message.created',arguments:{thread_ts:args.thread_ts,conversation_id:args.conversation_id},
+      delivery:{mode:'webhook',url:'https://receiver.example.com/callback'}};
+    await unsubscribe(e,'stranger',stop);
+    expect(sqlite.prepare('SELECT active FROM subscriptions WHERE id=?').get(first.id)?.active).toBe(1);
+    await unsubscribe({...e,CALLBACK_ALLOWED_ORIGINS:''},'owner',stop);
+    await unsubscribe(e,'owner',stop);
+    expect(sqlite.prepare('SELECT active,secret FROM subscriptions WHERE id=?').get(first.id)).toEqual({active:0,secret:null});
+    expect(sqlite.prepare('SELECT count(*) n FROM subscriptions WHERE active=1').get()?.n).toBe(1);
+    expect(sqlite.prepare("SELECT count(*) n FROM deliveries WHERE state='cancelled'").get()?.n).toBe(1);
+    expect(sqlite.prepare("SELECT count(*) n FROM deliveries WHERE state='pending'").get()?.n).toBe(1);
+  });
   it('does not revive pending events when an expired subscription is recreated',async()=>{
     const {db,sqlite}=database(), e=env(db);
     await subscribe(e,'owner',subscription(),access,verified(),1000);await acceptEvent(e,event(),2000);
@@ -97,6 +120,7 @@ describe('security boundaries',()=>{
     expect(()=>callbackUrl(url,'https://receiver.example.com')).toThrow();
   });
   it('fails closed without verified callback origins and blocks redirects',async()=>{
+    expect(()=>new CallbackClient().validate('https://receiver.example.com/x')).toThrow('callback_policy_unconfigured');
     expect(()=>callbackUrl('https://receiver.example.com/x','')).toThrow('callback_policy_unconfigured');
     const callback=new CallbackClient('https://receiver.example.com',async(_url,init)=>{expect(init.redirect).toBe('manual');return new Response(null,{status:302});});
     await expect(callback.verify('https://receiver.example.com/x',secret,'sub')).rejects.toThrow('callback_redirect_blocked');

@@ -7,14 +7,25 @@ import { CallbackClient, validateSecret } from './callback';
 
 export const subscribeSchema=z.object({name:z.literal('slack.message.created'), arguments:filterSchema,
   delivery:z.object({mode:z.literal('webhook'),url:z.string().url().max(2048),secret:z.string().max(100)}).strict(),
-  cursor:z.null().optional(), _meta:z.record(z.string(),z.unknown()).optional()}).strict();
+  cursor:z.null().optional(), ttlMs:z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable().optional(),
+  _meta:z.record(z.string(),z.unknown()).optional()}).strict();
+const unsubscribeSchema=z.union([
+  z.object({name:z.literal('slack.message.created'),arguments:filterSchema,
+    delivery:z.object({mode:z.literal('webhook'),url:z.string().url().max(2048)}).strict(),
+    _meta:z.record(z.string(),z.unknown()).optional()}).strict(),
+  // Preserve the prototype's ID form for existing callers.
+  z.object({id:z.string().max(100),_meta:z.record(z.string(),z.unknown()).optional()}).strict(),
+]);
+function subscriptionId(principal:string,url:string,name:string,args:unknown) {
+  return `sub_${hash(canonical({principal,url,name,arguments:args}))}`;
+}
 export async function subscribe(env: Env, principal: string, value: unknown, access:(id:string)=>Promise<void>, callback=new CallbackClient(env.CALLBACK_ALLOWED_ORIGINS), now=Date.now()) {
   requireConfig(env,['DB','SUBSCRIPTION_ENCRYPTION_KEY']);
   const input=subscribeSchema.parse(value);
   await access(input.arguments.conversation_id);
   validateSecret(input.delivery.secret);
   const url=callback.validate(input.delivery.url), args=canonical(input.arguments);
-  const id=`sub_${hash(canonical({principal,url,name:input.name,arguments:input.arguments}))}`;
+  const id=subscriptionId(principal,url,input.name,input.arguments);
   const secretHash=hash(input.delivery.secret);
   const existing=await env.DB.prepare('SELECT * FROM subscriptions WHERE id=? AND owner=?').bind(id,principal).first<Subscription>();
   // Secret rotation and reactivation always reverify; successful refreshes cache for five minutes.
@@ -22,7 +33,8 @@ export async function subscribe(env: Env, principal: string, value: unknown, acc
     try { await callback.verify(url,input.delivery.secret,id); }
     catch(e) { throw new Failure(e instanceof Failure ? e.category : 'challenge_failed'); }
   }
-  const expires=now+86400000;
+  // A null/no-expiration request still receives our finite maximum lifetime.
+  const expires=now+Math.min(input.ttlMs ?? 86400000,86400000);
   const secret=await encrypt(input.delivery.secret,env.SUBSCRIPTION_ENCRYPTION_KEY,id);
   await env.DB.batch([
     env.DB.prepare(`UPDATE deliveries SET state='cancelled',claim=NULL WHERE subscription_id=? AND state IN ('pending','claimed')
@@ -37,7 +49,9 @@ export async function subscribe(env: Env, principal: string, value: unknown, acc
   return {id,refreshBefore:new Date(expires).toISOString(),cursor:null,truncated:false};
 }
 export async function unsubscribe(env: Env, principal: string, value: unknown) {
-  const {id}=z.object({id:z.string().max(100),_meta:z.record(z.string(),z.unknown()).optional()}).strict().parse(value);
+  const input=unsubscribeSchema.parse(value);
+  // Canonicalize without network access or requiring a still-configured callback allowlist.
+  const id='id' in input ? input.id : subscriptionId(principal,new URL(input.delivery.url).href,input.name,input.arguments);
   await env.DB.batch([
     env.DB.prepare('UPDATE subscriptions SET active=0,secret=NULL WHERE id=? AND owner=?').bind(id,principal),
     env.DB.prepare("UPDATE deliveries SET state='cancelled',claim=NULL WHERE subscription_id=? AND state IN ('pending','claimed') AND EXISTS (SELECT 1 FROM subscriptions WHERE id=? AND owner=?)").bind(id,id,principal),

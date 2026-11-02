@@ -8,7 +8,7 @@ export function validateSecret(secret: string) {
   const key=Buffer.from(secret.slice(6),'base64');
   if (key.length<24 || key.length>64 || key.toString('base64').replace(/=+$/,'')!==secret.slice(6).replace(/=+$/,'')) throw new Failure('invalid_signing_secret');
 }
-export function callbackUrl(raw: string, allowedOrigins: string) {
+export function callbackUrl(raw: string, allowedOrigins = '') {
   const url=new URL(raw);
   if (url.protocol!=='https:' || url.username || url.password || url.hash || url.port || isIP(url.hostname) || url.hostname.includes(':') || !url.hostname.includes('.') || /\.(localhost|local|internal|test|invalid)$/.test(url.hostname)) throw new Failure('callback_destination_blocked');
   const allowed=allowedOrigins.split(',').map(v=>v.trim()).filter(Boolean);
@@ -19,7 +19,7 @@ export function callbackUrl(raw: string, allowedOrigins: string) {
 }
 export type CallbackFetch = (url: string, init: RequestInit) => Promise<Response>;
 export class CallbackClient {
-  constructor(private origins: string, private transport: CallbackFetch = fetch) {}
+  constructor(private origins = '', private transport: CallbackFetch = fetch) {}
   validate(url: string) { return callbackUrl(url,this.origins); }
   async post(url: string, secret: string, subscription: string, id: string, body: string, now=Date.now()) {
     validateSecret(secret);

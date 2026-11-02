@@ -9,10 +9,12 @@ const modules=readdirSync(root,{recursive:true}).filter(f=>String(f).endsWith('.
 const runtime=new Miniflare({modules:modules.map(file=>({type:'ESModule',path:resolve(root,file)})),modulesRoot:root,
   compatibilityDate:'2026-05-15',compatibilityFlags:['nodejs_compat'],
   d1Databases:['DB'],d1Persist:resolve('.wrangler/smoke',crypto.randomUUID()),
-  bindings:{OWNER_USER_ID:'owner',SITES_IDENTITY_VERIFIED:'true',SLACK_BOT_TOKEN:'synthetic-token',SLACK_SIGNING_SECRET:'synthetic-signing-secret',SLACK_TEAM_ID:'TTEST',SLACK_BOT_ID:'BBOT',SLACK_BOT_USER_ID:'UBOT',SLACK_APP_ID:'ATEST'},
+  bindings:{OWNER_USER_ID:'owner',SITES_IDENTITY_VERIFIED:'true',SLACK_BOT_TOKEN:'synthetic-token',SLACK_SIGNING_SECRET:'synthetic-signing-secret',SLACK_TEAM_ID:'TTEST',SLACK_BOT_ID:'BBOT',SLACK_BOT_USER_ID:'UBOT',SLACK_APP_ID:'ATEST',
+    SUBSCRIPTION_ENCRYPTION_KEY:Buffer.alloc(32,5).toString('base64'),CALLBACK_ALLOWED_ORIGINS:''},
   assets:{directory:resolve('dist/client'),routerConfig:{has_user_worker:true}},
   outboundService:async request=>{
     assert.equal(new URL(request.url).origin,'https://slack.com');
+    if(new URL(request.url).pathname==='/api/conversations.info') return Response.json({ok:true,channel:{id:'CTEST',is_member:true}});
     assert.equal(new URL(request.url).pathname,'/api/auth.test');
     return Response.json({ok:true,team_id:'TTEST',user_id:'UBOT',bot_id:'BBOT'});
   },
@@ -36,5 +38,17 @@ try {
   const infoBody={...fixture.request,method:'tools/call',params:{...fixture.request.params,name:'slack_get_connection_info',arguments:{}}};
   const info=await runtime.dispatchFetch('http://localhost/mcp',{method:'POST',headers:{...fixture.headers,'Mcp-Method':'tools/call','Mcp-Name':'slack_get_connection_info','oai-authenticated-user-id':'owner'},body:JSON.stringify(infoBody)});
   const infoResult=await info.json();assert.equal(infoResult.result.isError,undefined,JSON.stringify(infoResult));
-  console.log(JSON.stringify({result:'PASS',checks:['bundled Worker health','owner authorization','D1 migration/readback','Bolt signed ingress','MCP SDK discovery'],ingress_ms:Math.round(performance.now()-start)}));
+  const eventParams={...fixture.request.params,name:'slack.message.created',arguments:{conversation_id:'CTEST'},ttlMs:null,
+    delivery:{mode:'webhook',url:'https://receiver.example.com/callback',secret:`whsec_${Buffer.alloc(32,7).toString('base64')}`}};
+  async function eventCall(method,params) {
+    const response=await runtime.dispatchFetch('http://localhost/mcp',{method:'POST',headers:{...fixture.headers,'Mcp-Method':method,'Mcp-Name':'slack.message.created','oai-authenticated-user-id':'owner'},
+      body:JSON.stringify({...fixture.request,method,params})});
+    assert.equal(response.status,200);return response.json();
+  }
+  const subscription=await eventCall('events/subscribe',eventParams);
+  assert.equal(subscription.error.code,-32015);assert.equal(subscription.error.data.reason,'callback_policy_unconfigured');
+  const {ttlMs,...stopParams}=eventParams;
+  const stopped=await eventCall('events/unsubscribe',{...stopParams,delivery:{mode:'webhook',url:eventParams.delivery.url}});
+  assert.equal(stopped.error,undefined);assert.ok(stopped.result);
+  console.log(JSON.stringify({result:'PASS',checks:['bundled Worker health','owner authorization','D1 migration/readback','Bolt signed ingress','MCP SDK discovery','native subscription lifetime and callback policy error','canonical unsubscribe'],ingress_ms:Math.round(performance.now()-start)}));
 } finally {await runtime.dispose();}
