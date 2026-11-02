@@ -1,18 +1,20 @@
 # SlackDot compatibility prototype plan
 
-Status: core prototype evaluation complete; private/DM native event-triggered replies and hosted pending-work recovery passed; auxiliary durable trigger remains required for full reliability (see [results](compatibility-prototype-results.md))
+Status: accepted Sites-only bounded delivery design awaits implementation and verification in this prototype. Step 8 decision/handoff is deferred until Steps 6–7 pass the revised contract. External schedulers/services are explicitly disallowed (see [results](compatibility-prototype-results.md)).
 Last updated: 2026-11-02  
 Target specification: [SlackDot specification](specification.md)
 
 ## 1. Objective
 
-Determine whether the intended single-dot, single-bot Slack integration can run through ChatGPT Sites, including native MCP Events and reliable delivery after an HTTP request has ended.
+Determine whether the intended single-dot, single-bot Slack integration can run entirely through ChatGPT Sites, including native MCP Events, automatic delivery after Slack acknowledgment, bounded background retries, and best-effort threaded failure feedback.
 
 Prove one complete path:
 
 > A person posts in an explicitly selected Slack conversation; a public Site accepts the signed event; a subscribed dot receives an MCP event; the dot sends a threaded reply through Bolt.
 
-Also prove recovery from an outbound delivery failure without another Slack event, an open browser, or a still-running original request.
+Also prove a short transient-failure retry inside the originating request's `waitUntil()` window, without another Slack event, an open browser, a manual trigger, or an external scheduler. On exhausted or permanent failure, verify terminal state and one best-effort threaded notice. The accepted policy is up to three total attempts within a 20-second aggregate delivery budget, five additional seconds reserved for terminal-state persistence/feedback, and safety margin before the 30-second platform limit.
+
+This accepted tradeoff supersedes the previous requirement for a retry at least 60 seconds later and guaranteed autonomous recovery after interruption. Durable records remain required; eventual delivery, resumed execution after a crash/deployment, and guaranteed failure notification are not promised. Existing manual-trigger and long-delay experiments remain historical evidence and do not pass the revised automatic path.
 
 The prototype is an implementation experiment, not the full application. A documented limitation is an acceptable research result; silently weakening delivery guarantees is not.
 
@@ -28,7 +30,8 @@ The prototype is an implementation experiment, not the full application. A docum
 - One event type: `slack.message.created`, requiring `conversation_id` and optionally `thread_ts`.
 - Subscription creation, refresh, expiration, and unsubscribe using the OpenAI webhook profile.
 - D1 persistence for subscriptions, ingress deduplication, and a minimal delivery outbox.
-- Signed callback verification, signed delivery, and a demonstrated durable retry path.
+- Signed callback verification, automatic signed delivery, short budgeted retries, and persisted terminal/notice outcomes.
+- One best-effort Slack failure notice per eligible source message, with idempotency, uncertainty handling, and bot-loop suppression.
 - Public/private channel and DM smoke checks using manually supplied conversation IDs.
 
 ### Defer
@@ -79,11 +82,11 @@ Preserve the Sites starter's actual conventions when initializing the applicatio
 
 - Implement the receiver, owner authorization, three prototype tools, subscription lifecycle, and D1 persistence in the normal application modules. The full application expands these same modules with additional tools and event types.
 - Keep HTTP routes thin. Put Slack operations, event processing, and protocol behavior in modules that can be exercised independently of route wiring.
-- Put hosted compatibility checks, controlled callback receivers, and delayed-delivery harnesses in `tests/compatibility`. They must exercise the same application code that is deployed to Sites.
+- Put hosted compatibility checks, controlled callback fixtures, and bounded-delivery harnesses in `tests/compatibility`. They must exercise the same application code deployed to Sites; test fixtures are not operational dependencies.
 - Put synthetic payloads and redacted protocol fixtures in `tests/fixtures`; do not capture credentials or real private conversation content.
 - Use `experiments` only for isolated, disposable questions such as Bolt bundling or a runtime API probe. Keep experiments outside the deployed import graph, move validated findings into application code, and remove obsolete probes.
 - Keep fault injection in test infrastructure or a narrowly injected test transport. Do not ship public debugging endpoints or a broad `PROTOTYPE_MODE` that weakens authentication or changes delivery guarantees.
-- Start with one package, one dependency graph, and one lockfile. Ordinary modules provide sufficient separation. Add a separate deployable package only if the prototype establishes an actual need for an auxiliary delivery service.
+- Start with one package, one dependency graph, and one lockfile. The entire application must deploy through Sites. Do not introduce an external scheduler or separately hosted delivery service.
 - Do not prebuild generalized hosting adapters, plugin frameworks, or abstractions for deferred product features.
 
 ### Git milestones
@@ -96,7 +99,7 @@ Preserve the Sites starter's actual conventions when initializing the applicatio
 
 ### Transition to the full application
 
-After evaluating the prototype, perform an explicit transition checkpoint:
+Only after implementing and verifying the accepted bounded-delivery design in Steps 6–7, perform the Step 8 transition checkpoint. Earlier tags preserve historical evidence and do not close this work:
 
 1. Review the compatibility evidence and resolve or document each deployment dependency and blocker.
 2. Identify which implementation choices are retained, replaced, or removed. Passing a compatibility check does not automatically make its implementation production-ready.
@@ -133,8 +136,9 @@ Create `plans/compatibility-prototype-results.md` during execution. Record:
 - Redacted MCP request/response fixtures and HTTP status results.
 - Slack ingress acknowledgment timing and deduplication evidence.
 - D1 readback showing subscriptions and pending work survive a new invocation/deployment.
-- Retry timings showing execution after the original request ended.
-- The chosen deployment topology and every external dependency, if any.
+- Timelines showing Slack acknowledgment before callback completion, attempts/backoff within the aggregate budget, and notice completion or recorded failure before the deadline.
+- Terminal state, stable event IDs, notice idempotency, and interruption evidence; distinguish retained state from resumed execution.
+- Sites-only deployment and confirmation that normal delivery needs no manual trigger, browser, schedule, or external execution service.
 - Unresolved questions and precise implementation consequences.
 
 Do not store bot tokens, signing secrets, callback secrets, callback URLs containing credentials, or real message content in that report. Use synthetic test text and redacted identifiers where practical.
@@ -199,7 +203,7 @@ If the native plugin supports tools but not events, record the exact observed fa
 
 1. Post synthetic text in the subscribed public test channel.
 2. Confirm the ingress event is normalized and one delivery record is created.
-3. Confirm OpenAI accepts the signed event and the dot receives its expected payload.
+3. Confirm OpenAI accepts the signed event and the dot receives its expected payload. Rerun this check after Step 6 without invoking `/internal/deliver`; previous manual-trigger passes are the integration baseline only.
 4. Have the dot call `slack_get_thread` if context is needed, then `slack_send_message` with the source message's thread timestamp.
 5. Confirm the reply appears in the correct thread as the bot.
 6. Confirm the bot's own message does not trigger another automatic delivery/reply.
@@ -208,21 +212,22 @@ If the native plugin supports tools but not events, record the exact observed fa
 
 Exit evidence: at least one actual Slack -> Sites -> MCP Events -> dot -> MCP tool -> Slack round trip, plus explicit results for each tested conversation type.
 
-### Step 6: Resolve durable execution and delayed retries
+### Step 6: Implement and verify bounded Sites-only delivery
 
-This step is a required feasibility test, not optional production hardening.
+This is required implementation and verification within the compatibility prototype, before decision and handoff. Use specification sections 6 and 10 as the behavioral contract. Do not provision or propose external execution infrastructure.
 
-1. Inspect the supported Sites deployment capabilities for native queue consumers, scheduled triggers, or other durable wake-up mechanisms. Distinguish generic Cloudflare features from features actually configurable through Sites.
-2. If a native mechanism is supported, provision a minimal instance through the supported workflow and connect it to the D1 outbox.
-3. Claim work atomically, check subscription validity before sending, and persist retry/outcome state.
-4. Inject a controlled transient failure before a delivery succeeds. Do not fabricate a production OpenAI callback response; use a bounded test seam or an authenticated test receiver under `tests/compatibility`, without adding public production debugging routes.
-5. Schedule the successful retry at least 60 seconds later, after Slack's original request and its `waitUntil()` window have ended.
-6. Close the browser and send no further Slack messages. Confirm the retry occurs solely through the durable trigger.
-7. Repeat with pending work across a deployment or simulated interruption. Verify recovery of work saved before its execution trigger was established.
-8. Separately verify that an event delivered after recovery is accepted by the real OpenAI callback.
-9. If native execution is unavailable, document a concrete minimal external queue/scheduler design and its authentication, failure, and deployment implications. Record Sites-only reliability as unproven/unsupported by the inspected interface. Do not provision new external services or silently claim a Sites-only result.
+1. Pass the Sites execution context into ingress orchestration. After successful durable acceptance, register direct delivery work with `ctx.waitUntil()` and return Slack's response promptly. Do not await callback completion on the acknowledgment path or call the Site over HTTP to start its own delivery.
+2. Persist original deadlines and attempt/claim state. Use up to three total attempts per event/subscription within one request-wide 20-second delivery budget, with short exponential backoff (initial target one second, then two seconds). Reserve the next five seconds for terminal-state persistence and feedback, leaving safety margin. Bound and cancel all network calls, including Slack authorization checks, against remaining time; verify fanout cannot multiply the shared budget.
+3. Preserve callback identity/body across retries and generate fresh signatures. Honor Retry-After, stop early when another attempt cannot fit, and handle permanent responses without retry. Recheck owner/subscription/access validity and retain atomic claims. Duplicate ingress and later invocations must not restart budgets or revive terminal/expired jobs.
+4. Treat callback `2xx` as delivery success without waiting for Dot's task/reply. On exhausted or permanent failure, persist terminal state and retain diagnostic records. On cancellation/revoked access, stop safely. Classify interrupted expired records when later observed, without promising another execution source.
+5. Implement one best-effort notice per source message in its correct Slack thread, using persisted notice/write idempotency and the specification's uncertainty-aware wording. Suppress generic failure notices if any matching delivery was accepted, or for unmatched/intentionally cancelled events. Record notice sent/failed/ambiguous state; do not blindly resend uncertain Slack writes. Filter notice-generated bot events from delivery.
+6. Add deterministic deadline/backoff/state tests and built-Worker tests that exercise actual background execution, not just a directly invoked drain. Hold a synthetic callback open to prove Slack acknowledgment precedes delivery completion. Inject one transient failure followed by success, repeated failures, permanent rejection, long Retry-After, cancellation, and notice failure. Assert attempt and total-time limits, terminalization, deduplication, and no self-loop.
+7. Test interruption before background registration, during a callback, and during a notice. Verify persisted state survives a new invocation/deployment and original deadlines still apply. Record that automatic recovery and a failure notice are not guaranteed; do not mislabel surviving records or a manually resumed job as autonomous success.
+8. Publish through the existing Sites workflow and rerun the live public/private/DM marker round trips using explicit Dot reply instructions, without a manual delivery invocation, browser keepalive, further Slack traffic, or scheduler. Verify real callback acceptance, thread placement, and no bot loops. Existing subscriptions and authorized test conversations should be reused where appropriate.
+9. Verify the exhaustion-to-Slack-notice path with a controlled synthetic failure fixture and real authorized Slack test thread in the hosted runtime. Use narrowly scoped, authenticated test infrastructure or an injected test transport; never fabricate a real OpenAI response, broaden the production callback allowlist, add public debug endpoints, or deliberately break real subscriptions. Keep any test-only deployment behavior isolated and remove it before final handoff. If hosted failure-path verification cannot safely be performed, record it as incomplete rather than substituting a local-only pass.
+10. Record tested source/deployment, acknowledgment and background timings, attempt counts, persisted outcomes, and the notice or its accurately recorded failure. Update setup/capability descriptions to remove the obsolete external-scheduler requirement; keep any manual endpoint explicitly diagnostic. Preserve useful regression coverage and identify older long-delay experiments as superseded evidence.
 
-Exit evidence: either demonstrated durable recovery under the chosen topology, or a precise blocker identifying the additional service needed. Persisting a pending row without an autonomous recovery path is a failed reliability test.
+Exit evidence: automatic hosted delivery and live replies without manual triggering; bounded transient retry and exhausted/permanent failure with terminal state and verified best-effort feedback; honest interruption/notification-failure outcomes. All required checks must pass or have an explicit unresolved blocker before Step 8 records an outcome. This design does not require or claim a retry beyond the originating background window.
 
 ### Step 7: Run the focused lifecycle and failure checks
 
@@ -242,9 +247,17 @@ Use the following matrix. Prefer deterministic local tests for transformations a
 | Repeated subscribe with reordered argument keys | Same logical subscription, updated expiration. |
 | Callback verification failure | No active delivery subscription; compatible protocol error. |
 | Private/local callback or redirect | Rejected by the validated callback policy. |
-| New request/deployment | Existing subscription and accepted pending work remain usable. |
-| Transient delivery failure | Stable event ID; fresh signature; delayed retry occurs autonomously. |
-| Non-retryable delivery response | Delivery becomes terminal according to the client profile. |
+| Automatic post-acceptance delivery | Hosted callback begins without a manual trigger; Slack acknowledgment is not delayed by callback latency. |
+| New request/deployment/interruption | Persisted subscription/delivery/notice state survives; expired work does not restart. No guaranteed resumed execution is claimed. |
+| Transient delivery failure | Same ID/body, fresh signature, short backoff, at most three total attempts within the shared delivery budget. |
+| Non-retryable delivery response | Terminal state without retry; best-effort failure feedback where appropriate. |
+| Attempts exhausted or deadline reached | No further callback attempt; retained terminal record and bounded notice attempt. |
+| Retry-After exceeds remaining budget | No premature retry; terminal reason and best-effort feedback. |
+| Slow authorization/callback/database | Aggregate deadline governs all work; no new attempt consumes the notice reserve; uncertainty is recorded if persistence fails. |
+| Callback accepted, Dot reply delayed | Delivery remains successful; no failure notice for asynchronous task latency. |
+| Duplicate/overlapping subscriptions and ingress | Shared budget, per-delivery claims, no reset deadlines, and one logical notice; suppress generic failure if any delivery succeeded. |
+| Slack notice rate-limit/error/ambiguous write | Record actual notice outcome without blind resend, duplicate, or false notification claim. |
+| Failure-notice bot event | No delivery or notice loop. |
 | Unsubscribe or expiration with a pending job | No subsequent send once the handler observes inactive/expired state. |
 | Revoked bot access | No further Slack data delivery; clear diagnostic state. |
 | Repeated completed write request | Returns stored result without a second Slack post. |
@@ -254,10 +267,10 @@ Do not build an exhaustive SDK test suite. Test the application's failure bounda
 
 ### Step 8: Record the decision and handoff
 
-Complete the results document with one of these outcomes:
+Do not advance to final decision/handoff until the Step 6 implementation and Step 7 verification have been completed and assessed. Existing core-integration results and historical tags are not acceptance of the new design. Then complete the results document with one of these outcomes:
 
-1. **Sites-only feasible:** Bolt, authenticated MCP tools, native plugin events, D1 persistence, and autonomous retries have all been demonstrated through Sites-supported deployment capabilities.
-2. **Sites with an auxiliary delivery service feasible:** The core application works in Sites, but reliable background execution needs an external queue/scheduler. Identify the dependency and the remaining implementation/validation work.
+1. **Sites-only feasible under the accepted bounded contract:** Bolt, protected MCP, native events, automatic post-acceptance delivery, short retries, terminal state, and best-effort threaded failure feedback are verified. State clearly that interruption can prevent delivery and feedback.
+2. **Core integration verified; bounded delivery/feedback incomplete:** Identify the specific implementation or verification gap and keep the prototype open. Do not substitute external infrastructure or declare handoff complete.
 3. **Material compatibility blocker:** A core boundary fails, such as Bolt runtime support, trusted owner authorization, event methods through the native plugin, or safe callback delivery. Describe the smallest viable alternative and which accepted requirement it would change.
 
 Update the main specification only with confirmed findings and clearly identified proposed changes. Do not declare the full product implemented when only the prototype passes.
@@ -266,14 +279,16 @@ Record the tested commit/deployment and preserve the evaluated prototype with th
 
 ## 7. Completion criteria
 
-The prototype work is complete when the compatibility questions have concrete evidence and the results document explains the viable topology or blocker. Passing the full feasibility gate requires:
+The prototype work is complete only after implementing and verifying the accepted Sites-only bounded-delivery design and recording its outcome or a concrete blocker. Passing the revised feasibility gate requires:
 
 - Successful hosted Bolt execution and Slack signature verification.
 - Public webhook reachability with protected owner-only MCP operations.
 - A working subscription through the native Site-created plugin and the intended dot.
-- One verified end-to-end message/reply cycle without a self-trigger loop.
-- Persisted subscription/outbox state across invocations and deployment.
-- A demonstrated retry after the original request lifetime, independent of new traffic.
+- Verified hosted public/private/DM message/reply smoke checks with automatic post-acceptance delivery and no manual trigger or self-loop.
+- Persisted subscription/outbox/notice state across invocations and deployment, with unchanged deadlines and honest interruption handling.
+- A demonstrated short retry after Slack acknowledgment within the background window, independent of new traffic, with attempt/time limits and Retry-After honored.
+- Exhausted/permanent delivery failure becomes terminal; one correctly threaded best-effort notice is verified, and failed/ambiguous notice attempts are reported honestly.
+- Success, duplication, cancellation, fanout, and interruption tests establish that the notice cannot create a loop or reset delivery budgets.
 - Explicit public-channel, private-channel, and DM thread-read results.
 - No secrets exposed in source, logs, documentation, browser responses, or test artifacts.
 
@@ -284,6 +299,7 @@ If a live input is unavailable, mark the corresponding check not tested. If a pl
 - Minimal TypeScript application using the supported Sites build/deployment structure, in the same application tree that will grow into the full product.
 - Slack app manifest, `.env.example` with key names only, and concise setup instructions.
 - D1 schema/migrations for the prototype's actual state needs.
+- Automatic `waitUntil()` delivery, shared deadline handling, bounded retry policy, and persisted terminal/failure-notice state implemented in the application modules.
 - Focused tests and redacted protocol fixtures.
 - A public deployed Site and its native plugin connection, if deployment prerequisites are available.
 - `plans/compatibility-prototype-results.md` with the evidence and final topology decision.

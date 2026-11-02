@@ -1,6 +1,6 @@
 # SlackDot specification
 
-Status: full implementation target; hosted prototype core verified, autonomous delivery requires an unprovisioned auxiliary service
+Status: Sites-only bounded delivery and best-effort failure feedback accepted; implementation and verification are required within the compatibility prototype before decision and handoff. External schedulers/services are disallowed.
 Last updated: 2026-11-02  
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
 
@@ -20,11 +20,12 @@ This document records the full target behavior. It distinguishes that target fro
 4. Do not implement multi-dot ownership, leases, agent routing, per-agent message attribution, or communication between dots through a shared bot.
 5. Multiple filtered event subscriptions from the controlling dot are allowed. They do not imply multiple bot owners.
 6. Expand the originally requested OAuth scopes when needed for the agreed features.
-7. Target ChatGPT Sites, using a public Site and server-side authorization for protected routes.
+7. Deploy the entire application through ChatGPT Sites, using a public Site and server-side authorization for protected routes. External schedulers and separately hosted delivery infrastructure are explicitly disallowed.
 8. Prefer MCP 2.0 HTTP, protocol revision `2026-07-28`, and the webhook event profile documented by OpenAI.
 9. Use durable storage for subscriptions, accepted Slack events, deduplication, and delivery state.
 10. Start without protocol replay: return `cursor: null` and explicitly document that limitation.
 11. Validate the platform with a narrow prototype before implementing the full tool catalog.
+12. Use automatic post-acceptance delivery with bounded retries in the originating request's `waitUntil()` window. On exhaustion or permanent delivery failure, retain terminal state and attempt one threaded Slack failure notice. Eventual delivery and guaranteed failure notification after interruption are explicitly not promised. This accepted tradeoff replaces the earlier durable delayed-recovery requirement.
 
 ## 3. Scope
 
@@ -40,7 +41,7 @@ This document records the full target behavior. It distinguishes that target fro
 - Subscribe to new messages, with conversation, thread, sender, and mention filters.
 - Handle edits, deletions, and reactions as distinct event types.
 - Persist subscription state across request termination, restarts, and deployments.
-- Retry transient outbound event-delivery failures using a durable execution mechanism.
+- Retry transient outbound delivery failures within a bounded Sites request background-execution budget, then attempt threaded failure feedback when appropriate.
 - Expose useful connection and error information without exposing credentials or private data publicly.
 
 ### Non-goals
@@ -72,9 +73,10 @@ This document records the full target behavior. It distinguishes that target fro
 2. A person posts a matching message in Slack.
 3. Slack sends the event to the public `/slack/events` endpoint.
 4. SlackDot verifies the request, durably accepts it, and promptly acknowledges Slack.
-5. SlackDot normalizes the event, applies the active subscription filters, and delivers a signed MCP event to the callback supplied by OpenAI.
+5. After persisting the normalized event and matching deliveries, SlackDot automatically starts signed callback delivery in `ctx.waitUntil()`, without waiting for the callback before returning Slack's acknowledgment.
 6. The dot decides whether to retrieve more context or respond, according to the user's instructions.
 7. If it responds, it calls a SlackDot tool. SlackDot suppresses its own bot's resulting activity from automatic event delivery to prevent a response loop.
+8. If callback receipt cannot be confirmed within the delivery budget, SlackDot records the terminal outcome and attempts one failure notice in the source thread. Callback acceptance is sufficient for success; waiting for the dot to finish its task or reply is not part of the delivery budget.
 
 Installing SlackDot alone does not instruct the dot to answer every Slack message. Event subscriptions and the dot's response instructions are established in ChatGPT.
 
@@ -121,9 +123,10 @@ The published Slack app manifest must be checked against the actual granted toke
 flowchart LR
     Slack[Slack workspace] -->|Signed event POST| Ingress[Public Slack webhook]
     Ingress -->|Durable acceptance| DB[(Sites D1)]
-    Trigger[Durable delivery trigger] --> Delivery[Event delivery handler]
+    Ingress -->|After commit: waitUntil| Delivery[Bounded event delivery]
     DB --> Delivery
     Delivery -->|Signed MCP webhook| Dot[Controlling dot]
+    Delivery -->|Failure notice if budget permits| Service
     Dot -->|Site plugin| MCP[Authenticated MCP endpoint]
     MCP --> Service[Slack service using Bolt client]
     Service -->|Bot token| Slack
@@ -142,19 +145,19 @@ flowchart LR
 
 ### Bolt integration
 
-Use a small Fetch-compatible custom Bolt receiver to bridge the Workers request lifecycle into Bolt. Preserve raw request bytes for Slack signature verification. Keep the receiver responsible for request verification, challenge handling, durable acceptance, and acknowledgment timing. Keep application listeners short and asynchronous work explicitly attached to the request lifecycle or a durable job.
+Use a small Fetch-compatible custom Bolt receiver to bridge the Workers request lifecycle into Bolt. Preserve raw request bytes for Slack signature verification. Keep the receiver responsible for request verification, challenge handling, durable acceptance, and acknowledgment timing. Keep application listeners short and attach delivery explicitly to the request execution context after persistence succeeds.
 
 The prototype must prove the selected Bolt and Slack Web API client versions actually bundle and run in Sites. Node compatibility support does not by itself prove the complete dependency graph works. Avoid relying on an always-running `app.start()` process, in-memory job queue, or resident Socket Mode connection.
 
-### Durable execution
+### Bounded Sites-only execution
 
-The target requires an execution mechanism that can resume deliveries after the originating HTTP invocation has ended. A D1 row stores work but cannot wake a Worker by itself.
+The accepted design uses the Sites Worker's `ctx.waitUntil()` to deliver after durable acceptance while returning Slack's acknowledgment promptly. It invokes the delivery module directly, without a self-HTTP call, manual trigger, polling schedule, external scheduler, or separately hosted service.
 
-Preferred outcome: a supported Sites-native queue or scheduled trigger demonstrated by the prototype. The inspected Sites deployment contract does not establish that these bindings can be provisioned through Sites.
+Use a conservative budget measured from the start of post-commit background work: up to 20 seconds for delivery, the next five seconds reserved for terminal-state persistence and failure feedback, and a safety margin before the platform's 30-second post-response limit. These are aggregate request budgets, including database work, authorization checks, callback calls, retry delays, and multiple matching subscriptions. They are not fresh budgets for each attempt or subscription. Apply actual cancellation/timeouts to network operations; a loop condition or Promise.race alone does not stop an in-flight request.
 
-Fallback outcome: an external durable queue or scheduler invokes an authenticated application delivery endpoint. The main application, MCP endpoint, secrets, and state can remain in Sites, but the deployment is then explicitly hybrid.
+Allow at most three total attempts per event/subscription, including the initial attempt, with short exponential backoff (initial target: one second, then two seconds). Start fewer attempts when the deadline or Retry-After requires it. Exact per-call caps must fit the aggregate budget and be validated in the prototype; the existing ten-second callback and eight-second Slack call timeouts cannot simply be reused for every operation. All background tasks from the same request share the platform window.
 
-The prototype must report this decision. It must not silently replace durable execution with best-effort `waitUntil()`, periodic browser activity, an in-memory timer, or reliance on another incoming Slack message. Sites-linked ChatGPT schedules are not assumed to be a per-message job runner.
+This is best-effort execution with durable records, not a durable execution service. Runtime termination, deployment interruption, or a crash between commit and scheduling can leave unresolved state and prevent both delivery and its failure notice. The user explicitly accepts this limitation for Sites-only deployment. Retain that state for inspection; do not claim autonomous later recovery, eventual delivery, or guaranteed notification. A surviving record is evidence of persistence, not evidence that it will run again.
 
 ### Suggested module boundaries
 
@@ -168,7 +171,7 @@ The prototype must report this decision. It must not silently replace durable ex
 | `events/subscriptions` | Subscription identity, validation, expiration, and refresh. |
 | `events/delivery` | Matching, signed callback verification, delivery, and retries. |
 | `storage` | D1 schema and durable state operations. |
-| `runtime` | Sites bindings, secrets, request context, and durable-trigger adapter. |
+| `runtime` | Sites bindings, secrets, request context, and bounded background execution. |
 
 These are code boundaries, not requirements for separate services or a generalized plugin framework.
 
@@ -182,7 +185,7 @@ Public Site access removes the platform sign-in gate for Slack's webhook. It doe
 | `/slack/events` | Publicly reachable; requires valid Slack signatures and freshness checks. |
 | `/mcp` tool calls and event subscription operations | Require a trusted Sites-authenticated principal matching the configured owner. |
 | MCP discovery/catalog metadata | Protected by default; may be exposed without Slack data only if the native plugin scanner requires it and that behavior is explicitly verified. |
-| Delivery/recovery trigger endpoint, if needed | Requires its own supported service authentication; rejects anonymous requests. |
+| Retained manual diagnostic delivery endpoint, if any | Requires service authentication; rejects anonymous requests and cannot reset expired delivery budgets or revive terminal jobs. It is not required for normal delivery. |
 | Any diagnostics or configuration interface | Owner-authorized; never a public view of messages, subscribers, or secrets. |
 
 Requirements:
@@ -315,7 +318,7 @@ Use a configurable finite subscription lifetime; the proposed default is 24 hour
 - Serialize each body once and sign/send the same bytes. Generate a fresh signing timestamp and signature for each retry.
 - Send one event per request, no larger than 256 KiB. Prefer substantially smaller payloads.
 - A `2xx` acknowledges receipt, not completion of the dot's work.
-- Retry transient failures with bounded backoff. Do not retry a delivery rejected with `410` or `413`; do not interpret an individual `410` as authority to remove unrelated subscriptions.
+- Retry transient failures with bounded backoff within the shared execution budget. Honor Retry-After; if the requested wait does not fit, stop attempts rather than retry early. Do not retry a delivery rejected with `410` or `413`; do not interpret an individual `410` as authority to remove unrelated subscriptions.
 
 ## 10. Event processing and durability
 
@@ -326,7 +329,7 @@ Use a configurable finite subscription lifetime; the proposed default is 24 hour
 - Durably record an accepted event before returning success to Slack, within Slack's three-second deadline.
 - If durable acceptance fails, return a failure promptly so Slack can retry.
 - Deduplicate transport retries using the Slack event ID and configured installation identity.
-- Duplicate ingress must still allow recovery of unfinished durable work; it must not erase pending delivery state.
+- Duplicate ingress must not reset original delivery deadlines, attempt counts, or notice state. It may claim unfinished eligible work only within the original budget and without overlapping a valid claim; it must not revive expired, delivered, terminal, or cancelled jobs.
 
 ### Normalization and matching
 
@@ -337,22 +340,31 @@ Use a configurable finite subscription lifetime; the proposed default is 24 hour
 - Exclude the app's own messages and reactions from automatic delivery. This is sufficient for the supported single-dot ownership model.
 - Match server-side before constructing a delivery. Use a unique event/subscription key to prevent duplicate fan-out records.
 
-### Delivery and recovery
+### Delivery state and bounded attempts
 
-- Persist pending deliveries and their subscription association.
-- Claim work atomically so overlapping request handlers cannot independently send the same unclaimed job. Retries may still produce duplicate receipt, so preserve event IDs.
-- Recheck subscription activity, expiration, and authorization immediately before delivery.
-- Record attempts, next retry time, last status/error category, and terminal outcomes.
-- Recover abandoned claims and pending work after process termination or deployment.
-- Address the gap between saving work and scheduling execution. A supported reconciliation trigger or equivalent durable handoff must recover work even if the original invocation terminates at that point.
-- Keep retry attempts and elapsed retry window bounded; surface exhausted jobs for operator inspection.
-- A pending D1 row alone does not satisfy this requirement. A demonstrated wake-up path is mandatory for the full reliability target.
+- Persist pending deliveries, their subscription associations, original deadlines, and attempt counts before starting delivery. Do not change a record's deadline on duplicate ingress or a later invocation.
+- Claim work atomically to prevent overlapping senders. Preserve the same event ID and serialized body across retries, with a fresh signing timestamp/signature for each attempt.
+- Recheck subscription activity, expiration, and authorization before sending. Unsubscribe, expiration, or revoked access cancels delivery; do not release more data or attempt a notice through revoked Slack access.
+- A callback `2xx` marks delivery accepted and ends attempts. The dot may finish later or choose not to reply; neither is a transport failure. A transport timeout can be ambiguous even if the receiver accepted the event.
+- Persist delivered, terminal-failure, or cancelled outcomes and bounded reason categories. Attempt exhaustion, a retry delay that does not fit, or a permanent rejection ends delivery attempts and removes the job from pending execution; retain the row for inspection and deduplication rather than deleting it.
+- Handle fanout within the shared request budget with bounded concurrency and per-subscription claims. One stalled callback must not consume the reserved notice window or grant other callbacks extra execution windows.
+- Interrupted pending/claimed rows remain inspectable. If encountered after their deadline, classify them as interrupted/expired without resending or resetting budgets. This classification requires a later authorized invocation and is not a guaranteed background cleanup or recovery mechanism.
 
-Delivery is best-effort with durable, bounded retries and duplicate handling. There is no guarantee against Slack events that never reach the app, expired subscriptions, or failures beyond the configured retry/retention window.
+### Threaded failure feedback
+
+When all eligible deliveries for a source message end without confirmed callback acceptance, attempt one bot notice in that message's Slack thread, using the root thread timestamp for an existing thread and the source message timestamp for a top-level message. Persist notice identity/state per logical source event so overlapping subscriptions, duplicate ingress, and repeated invocations cannot independently create notices. If any matching subscription accepted the event, suppress a generic non-delivery notice and retain other failures for diagnostics. Unmatched events and intentionally cancelled subscriptions do not generate failure notices.
+
+Use the existing write-idempotency discipline: retain notice success identifiers, reject conflicting reuse, and do not blindly resend an ambiguous Slack write. The notice counts against the reserved time budget, including authorization and database operations. Respect Slack rate limits; if posting is unavailable, rate-limited beyond the budget, interrupted, or ambiguous, record that outcome without looping or claiming the user was notified. Bot failure notices must be filtered out of event delivery, just like ordinary bot replies.
+
+Default wording for uncertain/exhausted delivery:
+
+> SlackDot couldn't confirm delivery to ChatGPT after several attempts. No further automatic attempts will be made for this message.
+
+For a single permanent rejection or budget exhaustion before multiple attempts, omit “after several attempts.” Never describe a timeout as proof that ChatGPT did not receive the event, expose callback URLs/secrets, or imply that a successful callback guarantees a dot reply. Failure feedback is best effort; neither the notice nor terminal-state persistence is guaranteed if the runtime or database becomes unavailable.
 
 ### Replay and history
 
-The first version does not advertise protocol replay. Durable retries for already accepted events are distinct from replay of history on a new or renewed subscription. Missed events cannot be recovered through an MCP cursor while `cursor: null` is in use.
+The first version does not advertise protocol replay. Short retries within an accepted event's execution budget are distinct from replay of history on a new or renewed subscription. Missed events cannot be recovered through an MCP cursor while `cursor: null` is in use.
 
 Slack remains the authority for conversation history. If a cached thread is used because a Slack method is unsupported, label it as partial and state its coverage. Do not imply that it includes messages from before observation began.
 
@@ -367,11 +379,12 @@ Use D1 with versioned schema migrations. Suggested logical records:
 | Normalized events | Stable logical occurrence and the data needed for matching/delivery. |
 | Subscriptions | Owner, event, canonical filters, callback, encrypted signing secret, expiration, and status. |
 | Delivery outbox | Event/subscription identity, attempts, next attempt, claim state, and outcome. |
+| Failure-notice state | Logical source-event identity, notice claim/status, Slack result identifiers, and bounded failure/ambiguity category; may reuse write records with an explicit event association. |
 | Write requests | Request ID, argument hash, in-flight/ambiguous/completed state, and Slack result identifiers. |
 
 Use uniqueness constraints and D1-supported atomic operations for correctness. Do not assume a PostgreSQL driver, raw TCP access, or long-lived interactive database transactions.
 
-Runtime secret names should include `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and an application encryption key for stored callback secrets. An external delivery trigger may need an additional service credential. Document names in `.env.example`; commit no values.
+Runtime secret names should include `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and an application encryption key for stored callback secrets. A retained manual diagnostic endpoint requires its own service credential; normal automatic delivery does not. Document names in `.env.example`; commit no values.
 
 Retention must be bounded and documented before production. A proposed starting policy is seven days for operational receipts, event payloads, terminal delivery records, and write-idempotency records. Active subscriptions persist for their granted lifetime. Cleanup must not remove pending work before its configured retry deadline. Remove callback secrets when they are no longer needed, including after any bounded rotation grace period.
 
@@ -379,7 +392,7 @@ Retention must be bounded and documented before production. A proposed starting 
 
 - Public health checks reveal no Slack message content, credentials, callback URLs, or subscription details.
 - Structured logs contain correlation IDs, normalized error categories, latency, and delivery status. Do not log message bodies or secrets by default.
-- Useful measurements include ingress acknowledgment latency, accepted/duplicate events, pending deliveries, retry count, oldest pending job, and failed subscriptions.
+- Useful measurements include acknowledgment latency, background elapsed time, attempts, terminal/interrupted deliveries, remaining budget, and notice sent/failed/ambiguous outcomes. Retention/cleanup is invocation-driven; do not promise timed cleanup without an execution source.
 - Respect both per-method and per-conversation Slack rate limits. Commercial distribution can change the applicable history limits; do not hard-code the internal-app limits as a universal guarantee.
 - Follow Sites' source/build/version/deployment workflow. Schema migrations must preserve active subscriptions and pending jobs across deployment.
 - Provide a setup guide covering Slack installation, scopes/events, secret configuration, public Site deployment, plugin connection, and the dot's monitoring instructions.
@@ -390,8 +403,8 @@ Retention must be bounded and documented before production. A proposed starting 
 | Question | Current evidence | Required resolution |
 | --- | --- | --- |
 | Does Bolt run in the Sites Worker runtime? | Hosted auth.test, native reads/writes, and signed Slack ingress pass. Version 7 durably accepted a human marker in 184 ms and delivered it to the intended dot after a manual trigger. | Retain the verified receiver and transport; full load/performance testing is outside this prototype. |
-| Does the Site-created plugin support MCP Events? | Native discovery, subscribe, signed callback verification, and public/private/DM event receipt pass on version 7. Private/DM events triggered verified threaded bot replies. Subscriptions and pending jobs survived redeployment. Pausing a temporary automation sent events/unsubscribe and received a successful handler result. | Explicit refresh is unavailable in Dot's exposed controls; automatic renewal remains untested. The outbox still requires a separately provisioned durable trigger for unattended delivery. |
-| Can delayed retries run using Sites alone? | The inspected Sites contract has no documented queue/cron/alarm provisioning. A local built-Worker test retried after restart and 60.131 seconds. Live private/DM pending jobs survived redeployment and were accepted by real OpenAI callbacks after one manual trigger. | An external durable scheduler is required by the currently inspected interface. Neither the local harness nor the hosted manual trigger proves autonomous recovery. Provisioning and validating the auxiliary service remain separate work. |
+| Does the Site-created plugin support MCP Events? | Native discovery, subscribe, signed callback verification, and public/private/DM event receipt pass on version 7. Private/DM events triggered verified threaded bot replies. Subscriptions and pending jobs survived redeployment. Pausing a temporary automation sent events/unsubscribe and received a successful handler result. | Reverify the round trip without the manual delivery trigger after implementing bounded automatic delivery. Automatic native renewal remains untested. |
+| Does bounded delivery and failure feedback work entirely on Sites? | The Worker receives an ExecutionContext but ingress currently does not start delivery. Existing manual-trigger and 60.131-second local recovery tests prove earlier behavior, not the newly accepted design. | Implement and verify automatic post-commit delivery, short budgeted retries, terminalization, and best-effort threaded notices in the compatibility prototype before decision/handoff. Record interruption limits; do not require or introduce an external scheduler. |
 | Is public hosting compatible with owner-only MCP access? | Native owner calls pass; hosted anonymous and forged-header probes are rejected. | Test a signed-in non-owner; retain the proven owner and ingress checks. |
 | Can callback egress checks be satisfied in Workers? | Exact-origin restriction is active for the independently checked OpenAI hostname; native challenge and delivery pass. Redirect/private-destination rejection is covered locally. | Retain exact-origin policy and independently verify any future destination changes; arbitrary destination DNS pinning is not claimed. |
 | Can this bot read channel threads? | Live public, private, and DM reads pass with the installed bot token. Three-message fixtures also passed native cursor continuation in all three types, with the parent repeated across pages. | Retain verified support; combine pages by message timestamp and follow opaque cursors. Broader history coverage and page-size/order guarantees are not established by these fixtures. |
@@ -406,14 +419,16 @@ These are proof obligations, not permission to quietly narrow the target behavio
 - The bot can discover joined public/private channels, open a DM, and exchange messages in each supported conversation type.
 - Thread reads have verified behavior and accurately report any limitation.
 - Message modifications apply only to the bot's messages; reaction operations behave idempotently where applicable.
-- Matching events reach the subscribed dot; nonmatching events do not.
+- Matching events automatically attempt delivery to the subscribed dot after durable acceptance; nonmatching events do not. Available callbacks succeed without a manual trigger.
 - Message/mention overlap and Slack retries do not cause duplicate logical deliveries per subscription.
 - The bot's own replies do not start a feedback loop.
 - Subscription refresh, expiration, unsubscribe, and revocation stop or continue delivery correctly.
-- Accepted events and pending deliveries survive request termination and deployment.
-- A failed delivery is retried after the original request has ended, including when no further Slack message or browser request occurs.
+- Subscription, delivery, deduplication, and notice records survive request termination/deployment; this does not guarantee execution resumes after interruption.
+- A transient failure is retried after Slack acknowledgment within the bounded background window, without another Slack event, browser, manual trigger, or scheduler.
+- Exhausted or permanently failed delivery becomes terminal, with one best-effort threaded notice when appropriate. No notice on successful callback acceptance, no duplicates on reconciliation, and no bot-notice loop.
+- Attempt limits, aggregate deadlines, Retry-After, cancellation, and notice failures are verified; interrupted work and notification uncertainty are reported honestly.
 - No credentials or private message data are exposed through public routes, artifacts, client bundles, or routine logs.
-- Documentation explicitly states the chosen Sites-only or hybrid deployment topology and the absence of protocol replay.
+- Documentation states Sites-only deployment, the bounded best-effort delivery/feedback contract, the absence of protocol replay, and the lack of guaranteed eventual delivery or failure notification after interruption.
 
 ## 15. Research sources and compatibility baseline
 
@@ -429,5 +444,5 @@ Research was conducted on 2026-11-02. Recheck these sources during implementatio
 - [Bolt custom receivers](https://docs.slack.dev/tools/bolt-js/concepts/receiver/) and [Slack signature verification](https://docs.slack.dev/authentication/verifying-requests-from-slack/).
 - [Conversation discovery](https://docs.slack.dev/reference/methods/conversations.list/), [history](https://docs.slack.dev/reference/methods/conversations.history/), and [current thread reference](https://docs.slack.dev/reference/methods/conversations.replies/). The [older thread reference](https://api.slack.com/methods/conversations.replies) documents the conflicting bot-token limitation.
 - [Slack message posting](https://docs.slack.dev/reference/methods/chat.postMessage/) and [rate-limit clarification](https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps/).
-- [Cloudflare execution context](https://developers.cloudflare.com/workers/runtime-apis/context/): `waitUntil()` lifetime and the need for durable execution beyond it.
+- [Cloudflare execution context](https://developers.cloudflare.com/workers/runtime-apis/context/): shared `waitUntil()` lifetime and cancellation limits for the accepted bounded execution design.
 

@@ -1,8 +1,10 @@
 # Compatibility prototype results
 
-Evaluation date: 2026-11-02. Status: core prototype evaluation complete with an explicit auxiliary-scheduler dependency; full hosted reliability gate incomplete. This is not a production-readiness claim.
+Evaluation date: 2026-11-02. Status: core integration verified; Sites-only automatic delivery and recovery investigation reopened. The user explicitly disallows external schedulers/services. Earlier hybrid-topology conclusions below are superseded, not accepted deployment decisions. This is not a production-readiness claim.
 
 ## Review findings and decisions
+
+Current constraint correction: the entire application must deploy through Sites. The earlier conclusion that an external service is required for normal delivery was too broad. `worker/index.ts` already receives `ExecutionContext`, but calls the application router without passing it; accepted Slack events persist work and return without starting the outbox. A bounded `ctx.waitUntil(...)` delivery attempt after durable acceptance is a concrete Sites-only initial-delivery path to implement and verify. It requires no scheduler or self-HTTP invocation. Its request lifetime does not establish delayed or crash-recovery guarantees, which remain a separate Sites-only investigation. No application code or deployment was changed as part of this correction. The historical `compatibility-prototype-v2` tag is preserved; its hybrid recommendation is superseded by this constraint.
 
 The specification and prototype plan agree on three tools, one message event, one owner/workspace/bot, no protocol replay, and durable acceptance before acknowledgment. No deferred tool catalog has been implemented.
 
