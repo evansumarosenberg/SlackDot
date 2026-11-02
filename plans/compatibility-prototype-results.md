@@ -34,7 +34,8 @@ D1 migration: `drizzle/0000_broken_white_queen.sql` and generated Drizzle metada
 | Retry and claim recovery | Passed with simulated time | Stable event ID/body, fresh signature, 60-second minimum delay, abandoned lease recovery, concurrent claims |
 | Cancellation/revocation | Passed locally | Expiration, unsubscribe and revoked-access delivery checks |
 | Write idempotency | Passed locally | Success replay, conflicting request ID, concurrent claim, uncertain response never resent |
-| Hosted Slack signature/ack latency | Not tested | Requires configured Slack secrets and genuine event |
+| Hosted Bolt/Web API execution | Passed for auth.test | Version 3 owner setup returned the configured workspace/bot user and a bot ID from Slack after the manual-redirect fix |
+| Hosted Slack signature/ack latency | Not tested | Requires a genuine signed Slack event; local workerd ingress measured 8 ms in the focused fixture |
 | Native plugin owner call/events | Not tested | Requires publication, verified identity and dot connection |
 | Public header impersonation | Passed initial hosted probe | Anonymous/forged MCP requests both 401 at Sites ingress; forged setup headers redirect to sign-in, without reflecting forged ID. Signed-in owner setup shows a distinct Site-scoped ID |
 | Signed-in non-owner | Not tested | Requires second identity |
@@ -54,6 +55,10 @@ Initial hosted source commit: `3ee5b7647ca0b2749e5ac49b6853c03e3ed81511`. Site v
 Owner identity was obtained by an actual Sites sign-in, not inferred from the account ID. Runtime identity trust was enabled only after the hosted public-header probe. Slack secrets were supplied by the user in Sites; encryption and service-trigger secrets were generated directly into secret runtime configuration. No secret values were written to repository files.
 
 The evaluated tag and subsequent deployment evidence will be added after evaluation. No Slack secrets, callback URLs or real message content belong here.
+
+Version 3 source `e6401b6b39b81004824b44e503fe17e508110c24`, saved version `appgprj_6ae8ea0e10708191b688ea6b34e404d7~appgver_bd6e3373196081919f0d2c8764751006`, deployment `appgdep_6ae8ef4ce3208191898071b41fe75d72` succeeded at 20:15:19 UTC. The owner setup page then completed live Slack auth.test. A later environment-only redeployment (`appgdep_6ae8ef78e70c8191af325fa2413bb750`) failed with "Project lifecycle changed while publishing." Health subsequently returned 503 while the project still reported active/public. Reconciliation is in progress.
+
+The user reports the native plugin page is missing tools or events. The existing general Slack connector cannot access the supplied test conversations (`channel_not_found`), and the browser requires Slack sign-in. No synthetic messages have been sent through that unrelated connector, and it is not used as evidence of bot-token access. Test posts/replies in the dedicated conversations are authorized, pending a working path.
 
 ## Topology decision and transition checkpoint
 

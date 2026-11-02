@@ -25,7 +25,7 @@ export function owner(request: Request, env: Env) {
   if (!principal || principal !== env.OWNER_USER_ID) throw new Failure('unauthorized');
   return principal;
 }
-export async function boundedText(request: Request | Response, max: number) {
+export async function boundedText(request: {body:ReadableStream<Uint8Array>|null}, max: number) {
   const reader = request.body?.getReader();
   if (!reader) return '';
   const chunks: Uint8Array[] = []; let length = 0;

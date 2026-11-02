@@ -32,6 +32,7 @@ export function createBolt(env: Env) {
   return {app, receiver};
 }
 export async function receiveSlack(request: Request, env: Env, now = Date.now()) {
+  const started=Date.now();
   try {
     requireConfig(env, ['DB','SLACK_SIGNING_SECRET','SLACK_BOT_TOKEN','SLACK_TEAM_ID','SLACK_BOT_USER_ID','SLACK_BOT_ID','SLACK_APP_ID','OWNER_USER_ID']);
     const raw = await boundedText(request, 256*1024);
@@ -49,6 +50,7 @@ export async function receiveSlack(request: Request, env: Env, now = Date.now())
     try {
       await Promise.race([receiver.receive(body), new Promise((_,reject) => {timer=setTimeout(()=>reject(new Failure('acceptance_timeout')),2400);})]);
     } finally { clearTimeout(timer); }
+    console.info(JSON.stringify({component:'slack_ingress',outcome:'accepted',ack_ms:Date.now()-started}));
     return new Response(null,{status:200});
   } catch (error) {
     return Response.json({error:error instanceof Failure ? error.category : 'acceptance_failed'},{status:503});

@@ -1,7 +1,7 @@
 import { createMcpHandler, McpServer, ProtocolError } from '@modelcontextprotocol/server';
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';
 import { z } from 'zod';
-import { owner, Failure, type Env } from '../runtime/config';
+import { owner, Failure, boundedText, type Env } from '../runtime/config';
 import { SlackService, sendSchema, threadSchema } from '../slack/service';
 import { filterSchema, payloadSchema } from '../slack/normalize';
 import { subscribe, unsubscribe } from '../events/subscriptions';
@@ -45,9 +45,19 @@ export function server(env: Env, principal: string) {
   return mcp;
 }
 export async function handleMcp(request: Request, env: Env) {
+  let method='invalid';
+  try {
+    const parsed=JSON.parse(await boundedText(request.clone(),65536));
+    if (['server/discover','initialize','tools/list','tools/call','events/list','events/subscribe','events/unsubscribe'].includes(parsed.method)) method=parsed.method;
+  } catch { /* SDK owns malformed-request responses. Never log bodies. */ }
+  const caller=request.headers.get('oai-authenticated-user-id');
+  console.info(JSON.stringify({component:'mcp',method,identity_present:Boolean(caller),owner_match:Boolean(caller && caller===env.OWNER_USER_ID),
+    version_header:request.headers.get('MCP-Protocol-Version')==='2026-07-28'?'2026-07-28':'other_or_missing'}));
   let principal: string;
   try { principal=owner(request,env); }
   catch(e) { return Response.json({error:e instanceof Failure ? e.category : 'unauthorized'},{status:e instanceof Failure && e.category==='unauthorized' ? 403 : 503}); }
   const handler=createMcpHandler(()=>server(env,principal),{legacy:'reject',responseMode:'auto',maxRequestBodySize:65536,maxSubscriptions:0,keepAliveMs:0});
-  return handler.fetch(request);
+  const response=await handler.fetch(request);
+  response.headers.set('Cache-Control','private, no-store');
+  return response;
 }
