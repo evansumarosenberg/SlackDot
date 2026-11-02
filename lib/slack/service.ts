@@ -20,17 +20,19 @@ export function slackFailure(error: unknown): Failure {
 export class SlackService {
   private client;
   constructor(private env: Env) {
-    requireConfig(env,['SLACK_BOT_TOKEN','SLACK_TEAM_ID','SLACK_BOT_ID','SLACK_BOT_USER_ID']);
+    requireConfig(env,['SLACK_BOT_TOKEN']);
     this.client=createBolt(env).app.client;
   }
   async identity() {
     try {
       const r=await this.client.auth.test({token:this.env.SLACK_BOT_TOKEN});
-      if (r.team_id!==this.env.SLACK_TEAM_ID || r.user_id!==this.env.SLACK_BOT_USER_ID || r.bot_id!==this.env.SLACK_BOT_ID) throw new Failure('installation_mismatch');
+      if (!r.team_id || !r.user_id || !r.bot_id) throw new Failure('invalid_bot_identity');
+      if ((this.env.SLACK_TEAM_ID && r.team_id!==this.env.SLACK_TEAM_ID) || (this.env.SLACK_BOT_USER_ID && r.user_id!==this.env.SLACK_BOT_USER_ID) || (this.env.SLACK_BOT_ID && r.bot_id!==this.env.SLACK_BOT_ID)) throw new Failure('installation_mismatch');
       return {workspace_id:r.team_id,bot_user_id:r.user_id,bot_id:r.bot_id};
     } catch(e) { throw e instanceof Failure ? e : slackFailure(e); }
   }
   async access(conversation: string) {
+    requireConfig(this.env,['SLACK_TEAM_ID','SLACK_BOT_ID','SLACK_BOT_USER_ID','SLACK_APP_ID']);
     await this.identity();
     try {
       const r=await this.client.conversations.info({token:this.env.SLACK_BOT_TOKEN,channel:conversation});

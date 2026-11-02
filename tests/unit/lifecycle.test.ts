@@ -15,6 +15,12 @@ const verified=()=>new CallbackClient('https://receiver.example.com',async(_url,
 const count=(sqlite:any,table:string)=>sqlite.prepare(`SELECT count(*) n FROM ${table}`).get().n;
 
 describe('durable event lifecycle',()=>{
+  it('does not revive pending events when an expired subscription is recreated',async()=>{
+    const {db,sqlite}=database(), e=env(db);
+    await subscribe(e,'owner',subscription(),access,verified(),1000);await acceptEvent(e,event(),2000);
+    await subscribe(e,'owner',subscription(),access,verified(),86402000);
+    expect(sqlite.prepare('SELECT state FROM deliveries').get()?.state).toBe('cancelled');
+  });
   it('canonical refresh rotates encrypted secrets and retains a stable identity',async()=>{
     const {db,sqlite}=database(), e=env(db), callback=verified();
     const spy=vi.spyOn(callback,'verify');

@@ -22,9 +22,9 @@ D1 migration: `drizzle/0000_broken_white_queen.sql` and generated Drizzle metada
 | Check | Result | Evidence / limitation |
 |---|---|---|
 | TypeScript | Passed locally | `npm run typecheck` |
-| Focused application tests | Passed locally | 32 tests, `npm test`; real SQLite transaction adapter executes application D1 SQL |
+| Focused application tests | Passed locally | 33 tests, `npm test`; real SQLite transaction adapter executes application D1 SQL |
 | Sites build | Passed locally | Supported `build-site.mjs`; framework builds all environments |
-| Worker runtime imports and health | Passed locally | `node tests/compatibility/worker-smoke.mjs`, built bundle in workerd |
+| Worker runtime imports and health | Passed locally and hosted | `worker-smoke.mjs` executes Bolt ingress and SDK discovery in the built bundle; hosted health 200 |
 | D1 migrations and readback | Passed locally | Same worker smoke harness against Miniflare D1 |
 | Bolt receiver | Passed locally | Actual Bolt processEvent, signed synthetic request, challenge, invalid/stale signatures, wrong workspace, failed persistence |
 | Core SDK and Events wire contract | Passed locally | Modern discovery, three tools, strict event schema, protected methods, sanitized errors |
@@ -35,7 +35,7 @@ D1 migration: `drizzle/0000_broken_white_queen.sql` and generated Drizzle metada
 | Write idempotency | Passed locally | Success replay, conflicting request ID, concurrent claim, uncertain response never resent |
 | Hosted Slack signature/ack latency | Not tested | Requires configured Slack secrets and genuine event |
 | Native plugin owner call/events | Not tested | Requires publication, verified identity and dot connection |
-| Public header impersonation | Not tested | Local configured-header checks do not prove the Sites boundary |
+| Public header impersonation | Passed initial hosted probe | Anonymous/forged MCP requests both 401 at Sites ingress; forged setup headers redirect to sign-in, without reflecting forged ID. Signed-in owner setup shows a distinct Site-scoped ID |
 | Signed-in non-owner | Not tested | Requires second identity |
 | Hosted persistence across deployment | Not tested | Local D1 readback does not establish hosted persistence |
 | Autonomous delayed retry | Not tested / Sites-only unsupported by inspected contract | No native trigger declared; no external service provisioned |
@@ -46,9 +46,13 @@ Initial direct loopback HTTP preview requests timed out despite Wrangler startup
 
 ## Deployment record
 
-Site project: `appgprj_6ae8ea0e10708191b688ea6b34e404d7`. Public audience explicitly configured. Expected origin: `https://slackdot-compatibility.paryllax.chatgpt.site` (not evidence of successful deployment).
+Site project: `appgprj_6ae8ea0e10708191b688ea6b34e404d7`. Public audience explicitly configured. Published origin: `https://slackdot-compatibility.paryllax.chatgpt.site`.
 
-Tested commit, tag, Site version/deployment and native plugin ID will be added after evaluation. No Slack secrets, callback URLs or real message content belong here.
+Initial hosted source commit: `3ee5b7647ca0b2749e5ac49b6853c03e3ed81511`. Site version 1: `appgprj_6ae8ea0e10708191b688ea6b34e404d7~appgver_cce2f7390cfc81918c1b2e31dca452ae`; successful deployment `appgdep_6ae8ed8d2cd88191bd3a9d44d28a0839` at 20:07:54 UTC. Native plugin: `plugin_asdk_app_sites_3783386e839c819182ddea6454d0e5f6`; plugin management reports already installed, but its tools are not yet available to this chat. Installation is not a passed tool/event invocation check.
+
+Owner identity was obtained by an actual Sites sign-in, not inferred from the account ID. Runtime identity trust was enabled only after the hosted public-header probe. Slack secrets were supplied by the user in Sites; encryption and service-trigger secrets were generated directly into secret runtime configuration. No secret values were written to repository files.
+
+The evaluated tag and subsequent deployment evidence will be added after evaluation. No Slack secrets, callback URLs or real message content belong here.
 
 ## Topology decision and transition checkpoint
 

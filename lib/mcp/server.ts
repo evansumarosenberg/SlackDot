@@ -21,11 +21,14 @@ export function server(env: Env, principal: string) {
   });
   const slack=()=>new SlackService(env);
   mcp.registerTool('slack_get_connection_info',{description:'Verify the configured Slack bot identity and report prototype capabilities.',inputSchema:z.object({}).strict(),
+    outputSchema:z.object({workspace_id:z.string(),bot_user_id:z.string(),bot_id:z.string(),event_types:z.array(z.string()),replay:z.boolean(),durable_trigger:z.string(),thread_support:z.string()}),
     annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:true}},()=>tool(async()=>({...await slack().identity(),
       event_types:['slack.message.created'],replay:false,durable_trigger:'external_scheduler_required',thread_support:'requires_live_verification'})));
   mcp.registerTool('slack_get_thread',{description:'Read one page of a Slack thread. Support depends on the installed bot token; errors never imply a complete thread.',inputSchema:threadSchema,
+    outputSchema:z.object({source:z.string(),complete:z.boolean(),next_cursor:z.string().nullable(),messages:z.array(z.object({message_ts:z.string(),thread_ts:z.string(),author_id:z.string().nullable(),text:z.string().max(4000),truncated:z.boolean()}))}),
     annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:true}},(input)=>tool(()=>slack().thread(input)));
   mcp.registerTool('slack_send_message',{description:'Post a message or threaded reply as the bot. Reuse request_id only with identical arguments. Ambiguous writes require operator reconciliation.',inputSchema:sendSchema,
+    outputSchema:z.object({conversation_id:z.string(),message_ts:z.string(),thread_ts:z.string().nullable()}),
     annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:true}},(input)=>tool(()=>slack().send(input,principal)));
   // Extension methods remain isolated from the SDK-owned core wire protocol.
   mcp.server.setRequestHandler('events/list',{params:objectResult,result:objectResult},async()=>({events:[eventDefinition()]}));

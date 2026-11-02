@@ -24,12 +24,16 @@ export async function subscribe(env: Env, principal: string, value: unknown, acc
   }
   const expires=now+86400000;
   const secret=await encrypt(input.delivery.secret,env.SUBSCRIPTION_ENCRYPTION_KEY,id);
-  await env.DB.prepare(`INSERT INTO subscriptions(id,owner,name,args,conversation,thread,callback,secret,secret_hash,verified_at,created_at,expires_at,active)
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE deliveries SET state='cancelled',claim=NULL WHERE subscription_id=? AND state IN ('pending','claimed')
+      AND EXISTS (SELECT 1 FROM subscriptions WHERE id=? AND (active=0 OR expires_at<=?))`).bind(id,id,now),
+    env.DB.prepare(`INSERT INTO subscriptions(id,owner,name,args,conversation,thread,callback,secret,secret_hash,verified_at,created_at,expires_at,active)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET secret=excluded.secret,secret_hash=excluded.secret_hash,
     verified_at=excluded.verified_at,expires_at=excluded.expires_at,active=1,
     created_at=CASE WHEN subscriptions.active=0 OR subscriptions.expires_at<=? THEN excluded.created_at ELSE subscriptions.created_at END`)
     .bind(id,principal,input.name,args,input.arguments.conversation_id,input.arguments.thread_ts??null,url,secret,secretHash,
-      existing?.active && existing.expires_at>now && existing.secret_hash===secretHash && existing.verified_at>=now-300000 ? existing.verified_at : now,now,expires,now).run();
+      existing?.active && existing.expires_at>now && existing.secret_hash===secretHash && existing.verified_at>=now-300000 ? existing.verified_at : now,now,expires,now),
+  ]);
   return {id,refreshBefore:new Date(expires).toISOString(),cursor:null,truncated:false};
 }
 export async function unsubscribe(env: Env, principal: string, value: unknown) {
