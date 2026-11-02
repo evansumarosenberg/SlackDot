@@ -4,15 +4,32 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { Webhook } from 'standardwebhooks';
+const callbackSecret=`whsec_${Buffer.alloc(32,7).toString('base64')}`;
+const triggerSecret='synthetic-trigger-secret-at-least-32-characters';
+let verificationCalls=0,deliveryCalls=0;
 const root=resolve('dist/server');
 const modules=readdirSync(root,{recursive:true}).filter(f=>String(f).endsWith('.js')).map(String).sort((a,b)=>a==='index.js'?-1:b==='index.js'?1:a.localeCompare(b));
 const runtime=new Miniflare({modules:modules.map(file=>({type:'ESModule',path:resolve(root,file)})),modulesRoot:root,
   compatibilityDate:'2026-05-15',compatibilityFlags:['nodejs_compat'],
   d1Databases:['DB'],d1Persist:resolve('.wrangler/smoke',crypto.randomUUID()),
   bindings:{OWNER_USER_ID:'owner',SITES_IDENTITY_VERIFIED:'true',SLACK_BOT_TOKEN:'synthetic-token',SLACK_SIGNING_SECRET:'synthetic-signing-secret',SLACK_TEAM_ID:'TTEST',SLACK_BOT_ID:'BBOT',SLACK_BOT_USER_ID:'UBOT',SLACK_APP_ID:'ATEST',
-    SUBSCRIPTION_ENCRYPTION_KEY:Buffer.alloc(32,5).toString('base64'),CALLBACK_ALLOWED_ORIGINS:''},
+    SUBSCRIPTION_ENCRYPTION_KEY:Buffer.alloc(32,5).toString('base64'),CALLBACK_ALLOWED_ORIGINS:'https://receiver.example.com',DELIVERY_TRIGGER_SECRET:triggerSecret},
   assets:{directory:resolve('dist/client'),routerConfig:{has_user_worker:true}},
   outboundService:async request=>{
+    if(new URL(request.url).origin==='https://receiver.example.com') {
+      assert.equal(request.method,'POST');
+      assert.ok(request.headers.get('x-mcp-subscription-id')?.startsWith('sub_'));
+      const payload=new Webhook(callbackSecret).verify(await request.text(),Object.fromEntries(request.headers));
+      if(payload.type==='verification') {
+        verificationCalls++;assert.equal(typeof payload.challenge,'string');
+        return Response.json({challenge:payload.challenge});
+      }
+      deliveryCalls++;assert.equal(payload.name,'slack.message.created');
+      assert.equal(payload.eventId,request.headers.get('webhook-id'));
+      assert.equal(payload.data.text,'Synthetic delivery smoke');
+      return new Response(null,{status:204});
+    }
     assert.equal(new URL(request.url).origin,'https://slack.com');
     if(new URL(request.url).pathname==='/api/conversations.info') return Response.json({ok:true,channel:{id:'CTEST',is_member:true}});
     assert.equal(new URL(request.url).pathname,'/api/auth.test');
@@ -39,16 +56,25 @@ try {
   const info=await runtime.dispatchFetch('http://localhost/mcp',{method:'POST',headers:{...fixture.headers,'Mcp-Method':'tools/call','Mcp-Name':'slack_get_connection_info','oai-authenticated-user-id':'owner'},body:JSON.stringify(infoBody)});
   const infoResult=await info.json();assert.equal(infoResult.result.isError,undefined,JSON.stringify(infoResult));
   const eventParams={...fixture.request.params,name:'slack.message.created',arguments:{conversation_id:'CTEST'},ttlMs:null,
-    delivery:{mode:'webhook',url:'https://receiver.example.com/callback',secret:`whsec_${Buffer.alloc(32,7).toString('base64')}`}};
+    delivery:{mode:'webhook',url:'https://receiver.example.com/callback',secret:callbackSecret}};
   async function eventCall(method,params) {
     const response=await runtime.dispatchFetch('http://localhost/mcp',{method:'POST',headers:{...fixture.headers,'Mcp-Method':method,'Mcp-Name':'slack.message.created','oai-authenticated-user-id':'owner'},
       body:JSON.stringify({...fixture.request,method,params})});
     assert.equal(response.status,200);return response.json();
   }
   const subscription=await eventCall('events/subscribe',eventParams);
-  assert.equal(subscription.error.code,-32015);assert.equal(subscription.error.data.reason,'callback_policy_unconfigured');
+  assert.equal(subscription.error,undefined,JSON.stringify(subscription));
+  assert.equal(verificationCalls,1);assert.ok(subscription.result.id.startsWith('sub_'));
+  assert.equal((await db.prepare('SELECT count(*) n FROM subscriptions WHERE active=1').first()).n,1);
+  const incoming=JSON.parse(body);incoming.event_id='EvDELIVERY';incoming.event.ts='1793640001.123456';incoming.event.text='Synthetic delivery smoke';
+  const incomingBody=JSON.stringify(incoming),incomingSignature='v0='+createHmac('sha256','synthetic-signing-secret').update(`v0:${ts}:${incomingBody}`).digest('hex');
+  assert.equal((await runtime.dispatchFetch('http://localhost/slack/events',{method:'POST',headers:{'x-slack-request-timestamp':ts,'x-slack-signature':incomingSignature},body:incomingBody})).status,200);
+  const delivered=await runtime.dispatchFetch('http://localhost/internal/deliver',{method:'POST',headers:{Authorization:`Bearer ${triggerSecret}`}});
+  assert.equal(delivered.status,200);assert.equal((await delivered.json()).processed,1);assert.equal(deliveryCalls,1);
+  assert.equal((await db.prepare("SELECT count(*) n FROM deliveries WHERE state='delivered'").first()).n,1);
   const {ttlMs,...stopParams}=eventParams;
   const stopped=await eventCall('events/unsubscribe',{...stopParams,delivery:{mode:'webhook',url:eventParams.delivery.url}});
   assert.equal(stopped.error,undefined);assert.ok(stopped.result);
-  console.log(JSON.stringify({result:'PASS',checks:['bundled Worker health','owner authorization','D1 migration/readback','Bolt signed ingress','MCP SDK discovery','native subscription lifetime and callback policy error','canonical unsubscribe'],ingress_ms:Math.round(performance.now()-start)}));
+  assert.equal((await db.prepare('SELECT count(*) n FROM subscriptions WHERE active=1').first()).n,0);
+  console.log(JSON.stringify({result:'PASS',checks:['bundled Worker health','owner authorization','D1 migration/readback','Bolt signed ingress','MCP SDK discovery','signed callback verification using default transport','signed outbox delivery using authenticated trigger','canonical unsubscribe'],ingress_ms:Math.round(performance.now()-start)}));
 } finally {await runtime.dispose();}

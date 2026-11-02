@@ -19,7 +19,8 @@ export function callbackUrl(raw: string, allowedOrigins = '') {
 }
 export type CallbackFetch = (url: string, init: RequestInit) => Promise<Response>;
 export class CallbackClient {
-  constructor(private origins = '', private transport: CallbackFetch = fetch) {}
+  // Workers fetch requires its runtime receiver; do not invoke it as this.transport.
+  constructor(private origins = '', private transport: CallbackFetch = (url,init)=>globalThis.fetch(url,init)) {}
   validate(url: string) { return callbackUrl(url,this.origins); }
   async post(url: string, secret: string, subscription: string, id: string, body: string, now=Date.now()) {
     validateSecret(secret);
