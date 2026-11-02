@@ -23,3 +23,7 @@ export const writes = sqliteTable('writes', {
   id: text('id').primaryKey(), hash: text('hash').notNull(), state: text('state').notNull(),
   result: text('result'), createdAt: integer('created_at').notNull(),
 });
+export const deliveryNotices = sqliteTable('delivery_notices', {
+  eventId:text('event_id').primaryKey(), state:text('state').notNull(),
+  lastError:text('last_error'), result:text('result'), createdAt:integer('created_at').notNull(),
+});

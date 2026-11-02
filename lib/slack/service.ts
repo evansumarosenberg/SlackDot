@@ -19,9 +19,9 @@ export function slackFailure(error: unknown): Failure {
 }
 export class SlackService {
   private client;
-  constructor(private env: Env) {
+  constructor(private env: Env, deadline = Infinity) {
     requireConfig(env,['SLACK_BOT_TOKEN']);
-    this.client=createBolt(env).app.client;
+    this.client=createBolt(env,deadline).app.client;
   }
   async identity() {
     try {

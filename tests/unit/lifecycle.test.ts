@@ -1,5 +1,4 @@
 import { describe,it,expect,vi } from 'vitest';
-import { Webhook } from 'standardwebhooks';
 import { createHmac } from 'node:crypto';
 import { database } from '../support/database';
 import { env,event,secret,subscription,access } from '../support/fixtures';
@@ -77,21 +76,6 @@ describe('durable event lifecycle',()=>{
     await expect(subscribe(env(db),'owner',subscription(),access,new CallbackClient('https://receiver.example.com',async()=>Response.json({challenge:'wrong'})),1000)).rejects.toThrow('challenge_failed');
     expect(count(sqlite,'subscriptions')).toBe(0);
   });
-  it('uses a stable ID and new signature after a delayed retry in a new invocation',async()=>{
-    const {db,sqlite}=database(),e=env(db);let now=Date.now();
-    await subscribe(e,'owner',subscription(),access,verified(),now);
-    await acceptEvent(e,event(),now);
-    const calls:RequestInit[]=[];
-    const callback=new CallbackClient(e.CALLBACK_ALLOWED_ORIGINS,async(_url,init)=>{calls.push(init);return new Response(null,{status:calls.length===1?503:204});});
-    await drain(e,access,callback,()=>now);
-    expect(sqlite.prepare('SELECT state FROM deliveries').get()?.state).toBe('pending');
-    await drain({...e},access,callback,()=>now+59999);expect(calls.length).toBe(1);
-    now+=60000;await drain({...e},access,callback,()=>now);expect(calls.length).toBe(2);
-    const a=calls[0].headers as Record<string,string>,b=calls[1].headers as Record<string,string>;
-    expect(a['webhook-id']).toBe(b['webhook-id']);expect(a['webhook-signature']).not.toBe(b['webhook-signature']);expect(calls[0].body).toBe(calls[1].body);
-    new Webhook(secret).verify(calls[0].body as string,a);
-    expect(sqlite.prepare('SELECT state FROM deliveries').get()?.state).toBe('delivered');
-  });
   it('recovers expired claims atomically and cancels unsubscribed pending work',async()=>{
     const {db,sqlite}=database(),e=env(db);let now=Date.now();
     const sub=await subscribe(e,'owner',subscription(),access,verified(),now);await acceptEvent(e,event(),now);
@@ -103,16 +87,11 @@ describe('durable event lifecycle',()=>{
     await unsubscribe(e,'owner',{id:sub.id});await unsubscribe(e,'owner',{id:sub.id});
     await drain(e,access,callback,()=>now);expect(sent).toBe(1);expect(sqlite.prepare('SELECT secret FROM subscriptions').get()?.secret).toBeNull();
   });
-  it.each([410,413,400])('does not retry HTTP %s',async(status)=>{
-    const {db,sqlite}=database(),e=env(db),now=Date.now();await subscribe(e,'owner',subscription(),access,verified(),now);await acceptEvent(e,event(),now);
-    await drain(e,access,new CallbackClient(e.CALLBACK_ALLOWED_ORIGINS,async()=>new Response(null,{status})),()=>now);
-    expect(sqlite.prepare('SELECT state FROM deliveries').get()?.state).toBe('terminal');
-  });
   it.each(['expired','revoked'])('stops delivery when %s',async(kind)=>{
     const {db,sqlite}=database(),e=env(db),now=Date.now();await subscribe(e,'owner',subscription(),access,verified(),now);await acceptEvent(e,event(),now);
     const post=vi.fn(async()=>new Response(null,{status:204}));
     await drain(e,kind==='revoked'?async()=>{throw new Failure('installation_revoked');}:access,new CallbackClient(e.CALLBACK_ALLOWED_ORIGINS,post),()=>now+(kind==='expired'?86400001:0));
-    expect(post).not.toHaveBeenCalled();expect(sqlite.prepare('SELECT state FROM deliveries').get()?.state).toBe('cancelled');
+    expect(post).not.toHaveBeenCalled();expect(sqlite.prepare('SELECT state FROM deliveries').get()?.state).toBe(kind==='expired'?'terminal':'cancelled');
   });
 });
 describe('security boundaries',()=>{

@@ -3,10 +3,12 @@ import { createHmac } from 'node:crypto';
 import { boundedText, Failure, requireConfig, type Env } from '../runtime/config';
 import { equal } from '../runtime/crypto';
 import { acceptEvent } from '../storage';
+import { SLACK_CALL_MS } from '../events/budget';
 
 export const quietLogger = {debug(){}, info(){}, warn(){}, error(){}, setLevel(){}, getLevel(){return LogLevel.ERROR;}, setName(){}};
 export class FetchReceiver implements Receiver {
   app!: App;
+  acceptedEvent: string | null = null;
   init(app: App) { this.app = app; }
   async start() {}
   async stop() {}
@@ -15,23 +17,27 @@ export class FetchReceiver implements Receiver {
     await this.app.processEvent({body, ack: async () => {}});
   }
 }
-export function createBolt(env: Env) {
+export function createBolt(env: Env, deadline = Infinity) {
   const receiver = new FetchReceiver();
   const app = new App({receiver, logger:quietLogger,
     authorize:async () => ({botToken:env.SLACK_BOT_TOKEN, teamId:env.SLACK_TEAM_ID, botId:env.SLACK_BOT_ID, botUserId:env.SLACK_BOT_USER_ID}),
     clientOptions:{retryConfig:{retries:0}, rejectRateLimitedCalls:true, timeout:8000,
       // Workers rejects redirect:'error'. Manual mode plus rejection never forwards credentials.
       fetch:async(input,init)=>{
-        const response=await globalThis.fetch(input,{...init,redirect:'manual'});
+        const remaining=deadline-Date.now();
+        if(remaining<=0) throw new Failure('execution_deadline');
+        const signal=Number.isFinite(deadline) ? AbortSignal.timeout(Math.max(1,Math.floor(Math.min(SLACK_CALL_MS,remaining)))) : undefined;
+        const response=await globalThis.fetch(input,{...init,redirect:'manual',
+          signal:signal && init?.signal ? AbortSignal.any([signal,init.signal]) : signal ?? init?.signal});
         if (response.status>=300 && response.status<400) { await response.body?.cancel(); throw new Failure('slack_redirect_blocked'); }
         return response;
       }},
   });
   app.error(async () => { throw new Failure('acceptance_failed'); });
-  app.use(async ({body}) => { await acceptEvent(env, body); });
+  app.use(async ({body}) => { receiver.acceptedEvent=await acceptEvent(env, body); });
   return {app, receiver};
 }
-export async function receiveSlack(request: Request, env: Env, now = Date.now()) {
+export async function receiveSlack(request: Request, env: Env, now = Date.now(), accepted?: (eventId:string)=>void) {
   const started=Date.now();
   try {
     requireConfig(env, ['DB','SLACK_SIGNING_SECRET','SLACK_BOT_TOKEN','SLACK_TEAM_ID','SLACK_BOT_USER_ID','SLACK_BOT_ID','SLACK_APP_ID','OWNER_USER_ID']);
@@ -51,6 +57,8 @@ export async function receiveSlack(request: Request, env: Env, now = Date.now())
       await Promise.race([receiver.receive(body), new Promise((_,reject) => {timer=setTimeout(()=>reject(new Failure('acceptance_timeout')),2400);})]);
     } finally { clearTimeout(timer); }
     console.info(JSON.stringify({component:'slack_ingress',outcome:'accepted',ack_ms:Date.now()-started}));
+    // Register only committed work. No callback or Slack API request is awaited here.
+    if(receiver.acceptedEvent && accepted) accepted(receiver.acceptedEvent);
     return new Response(null,{status:200});
   } catch (error) {
     return Response.json({error:error instanceof Failure ? error.category : 'acceptance_failed'},{status:503});

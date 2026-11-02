@@ -2,6 +2,7 @@ import { Webhook } from 'standardwebhooks';
 import { isIP } from 'node:net';
 import { boundedText, Failure } from '../runtime/config';
 import { equal } from '../runtime/crypto';
+import { CALLBACK_MS } from './budget';
 
 export function validateSecret(secret: string) {
   if (!/^whsec_[A-Za-z0-9+/]+={0,2}$/.test(secret)) throw new Failure('invalid_signing_secret');
@@ -22,12 +23,14 @@ export class CallbackClient {
   // Workers fetch requires its runtime receiver; do not invoke it as this.transport.
   constructor(private origins = '', private transport: CallbackFetch = (url,init)=>globalThis.fetch(url,init)) {}
   validate(url: string) { return callbackUrl(url,this.origins); }
-  async post(url: string, secret: string, subscription: string, id: string, body: string, now=Date.now()) {
+  async post(url: string, secret: string, subscription: string, id: string, body: string, now=Date.now(), deadline=Infinity) {
     validateSecret(secret);
     if (Buffer.byteLength(body)>262144) throw new Failure('payload_too_large');
     const destination=this.validate(url), signedAt=new Date(now);
+    const remaining=deadline-now;
+    if(remaining<=0) throw new Failure('execution_deadline');
     try {
-      const response=await this.transport(destination,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(10000),
+      const response=await this.transport(destination,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(Math.max(1,Math.floor(Math.min(Number.isFinite(deadline)?CALLBACK_MS:10000,remaining)))),
         headers:{'Content-Type':'application/json','webhook-id':id,'webhook-timestamp':String(Math.floor(now/1000)),
           'webhook-signature':new Webhook(secret).sign(id,signedAt,body),'X-MCP-Subscription-Id':subscription},body});
       if (response.status>=300 && response.status<400) { await response.body?.cancel(); throw new Failure('callback_redirect_blocked'); }

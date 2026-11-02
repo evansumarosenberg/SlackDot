@@ -3,10 +3,14 @@ import { runWithConnectorBinding } from "../lib/connector-context";
 import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 import { route } from '../lib/runtime/router';
 import type { Env } from '../lib/runtime/config';
+// Temporary authenticated synthetic verification hook; remove before final handoff.
+import { hostedFailureFixture } from '../tests/compatibility/hosted-failure-fixture';
 
 const worker = {
   async fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
-    const response = await route(request, env as Env);
+    const fixture = await hostedFailureFixture(request,env as Env,ctx);
+    if(fixture) return fixture;
+    const response = await route(request, env as Env, ctx);
     if (response) return response;
     let binding = ctx.props?.CONNECTORS;
     // Local preview emulates the same request-scoped capability. This branch and
