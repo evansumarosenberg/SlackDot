@@ -1,6 +1,6 @@
 # Compatibility prototype results
 
-Evaluation date: 2026-11-02. Status: implementation and local validation complete; hosted feasibility gate incomplete. This is not a production-readiness claim.
+Evaluation date: 2026-11-02. Status: core prototype evaluation complete with an explicit auxiliary-scheduler dependency; full hosted reliability gate incomplete. This is not a production-readiness claim.
 
 ## Review findings and decisions
 
@@ -42,14 +42,14 @@ D1 migration: `drizzle/0000_broken_white_queen.sql` and generated Drizzle metada
 | Native event lifecycle | Subscription, callback verification, event receipt, and pause-to-unsubscribe passed | Temporary thread-filtered subscription succeeded; clearing triggers failed host validation, but pausing it caused a successful native events/unsubscribe. Original channel subscription remains enabled. Explicit refresh is unavailable in Dot's exposed controls; automatic renewal remains untested |
 | Public header impersonation | Passed initial hosted probe | Anonymous/forged MCP requests both 401 at Sites ingress; forged setup headers redirect to sign-in, without reflecting forged ID. Signed-in owner setup shows a distinct Site-scoped ID |
 | Signed-in non-owner | Not tested | Requires second identity |
-| Hosted persistence across deployment | Passed for active subscription | Subscription created before environment revision 11 redeployment delivered a subsequent marker. Pending outbox persistence across deployment remains untested |
+| Hosted persistence across deployment | Passed for subscriptions and pending outbox work | Private/DM human-marker jobs were read pending before and identically after redeploying version 7; a subsequent manual invocation delivered both on their first attempts |
 | Autonomous delayed retry | Not tested / Sites-only unsupported by inspected contract | No native trigger declared; no external service provisioned |
-| Public/private/DM thread reads | Passed in all three | Each test thread returned its exact parent and reply from slack.conversations.replies, complete=true, next_cursor=null |
+| Public/private/DM thread reads and cursor continuation | Passed in all three | Initial complete two-message reads passed; expanded three-message fixtures each returned a first page with a cursor and a final second page. Both pages repeat the parent; their union contains all three expected timestamps |
 | Native Slack writes and replay | Passed in all three | Each parent and reply replayed to its original timestamp; each complete thread contained exactly two messages |
 | Live Slack Events configuration | Corrected and verified | User updated configuration; Sites receiver URL is Verified and Socket Mode is false; signed callbacks now reach Sites |
-| Slack → native ChatGPT event delivery | Passed with manual runner | Dot reported native receipt and exact-marker verification through the prototype thread-read tool, then notified its private ChatGPT chat as configured |
-| End-to-end Slack → dot → Slack | Passed with manual delivery trigger and manually requested reply | Native event receipt and private ChatGPT notification passed; Dot subsequently reported one verified threaded bot reply at `1793655609.123899`, also visually confirmed by the user in Slack. Automatic Slack reply behavior remains untested |
-| Live bot-reply self-loop suppression | Passed for the test reply | Signed bot-reply ingress returned 200; later complete live D1 outbox read contained only the human marker delivery and no bot-reply delivery |
+| Slack → native ChatGPT event delivery | Passed in public/private/DM with manual runner | Dot reported exact native event IDs and marker verification in each type; private/DM delivery followed hosted pending-work recovery |
+| End-to-end Slack → dot → Slack | Passed; private/DM replies were event-triggered | Private reply `1793658967.150869` and DM reply `1793658954.613949` followed saved native event instructions and were independently read back as the bot. Earlier public reply was manually requested. Outbox execution was manually triggered in all cases |
+| Live bot-reply self-loop suppression | Passed for public/private/DM test replies | Bot-reply ingress was accepted; complete live D1 outbox read still contained only the three human marker deliveries, all delivered once |
 
 Initial direct loopback HTTP preview requests timed out despite Wrangler startup. The in-process Miniflare/workerd smoke test succeeded; no browser-rendering claim is made.
 
@@ -75,7 +75,7 @@ Version 6 publishes the subscription compatibility fixes and bounded event diagn
 
 ## Topology decision and transition checkpoint
 
-**Outcome 2: Sites core feasible; auxiliary delivery service required.** Native catalog discovery, owner tool invocation, public/private/DM writes, replay, thread reads, callback verification, and Slack-to-native-ChatGPT event delivery are verified. The human marker was durably accepted and delivered after one manual runner invocation. The active subscription survived redeployment. The private ChatGPT notification and subsequent manually requested Slack reply succeeded, with no bot-reply delivery in the live outbox. The inspected Sites interface does not provision a durable execution trigger. The proposed hybrid topology still requires an auxiliary scheduler and hosted recovery validation; the full feasibility gate remains incomplete. Step 6 permits this precise dependency finding and explicitly prohibits provisioning a new external service during the prototype. No duplicate plugin or alternative host was created.
+**Outcome 2: Sites core feasible; auxiliary delivery service required.** Native catalog discovery, owner tool invocation, public/private/DM writes, replay, thread reads with cursor continuation, callback verification, and native event delivery are verified. Private-channel and DM native events triggered the configured threaded bot replies without a manual reply request. Live subscriptions and pending jobs survived deployment, and no bot-reply deliveries appeared in the outbox. The inspected Sites interface does not provision a durable execution trigger. The proposed hybrid topology still requires an auxiliary scheduler and hosted autonomous retry validation; the full reliability gate remains incomplete. Step 6 permits this precise dependency finding and explicitly prohibits provisioning a new external service during the prototype. No duplicate plugin or alternative host was created.
 
 ### Native live test, 2026-11-02
 
@@ -213,11 +213,55 @@ The user relayed Dot's controlled lifecycle check, with no Slack messages sent:
 
 The user subsequently confirmed that only the temporary thread-filtered automation is paused and the original channel subscription remains enabled. Hosted logs independently show the resulting native `events/unsubscribe`, request `09152eb973c951d7d21a690e5818b931`, received at 22:25:43.506 UTC (4:25:43.506 p.m. CST) with expected event/arguments/delivery identity fields and the approved callback origin. It returned a JSON-RPC result at 22:25:43.679 UTC over HTTP 200. This verifies native pause-to-unsubscribe forwarding and successful handler completion, rather than inferring unsubscribe from task state alone. The handler awaits its owner-scoped D1 deactivation/secret-removal and pending-job cancellation batch before returning. Its response is idempotent and does not report matched row counts; the affected subscription row was not independently read. The temporary automation remains saved as paused in ChatGPT, not deleted. This resolves the native unsubscribe-control question through pause; explicit refresh and automatic host renewal remain unverified.
 
+### Live cursor continuation and next event tests, 2026-11-02
+
+Native connection info again matched workspace `T6BL7UHQF`, bot user `U0CF1MF96D6`, and bot ID `B0CF1MF7L4Q`. Reads of the existing two-message public/private/DM fixtures with `limit=1` each returned both messages and no cursor. To exercise actual continuation, one authorized synthetic bot reply was added to each existing fixture using distinct request IDs `slackdot-pagination-public-20261102-01`, `slackdot-pagination-private-20261102-01`, and `slackdot-pagination-dm-20261102-01`.
+
+| Conversation | Existing parent | Added pagination reply | Continuation result |
+|---|---|---|---|
+| Public `C0CE0REVDU1` | `1793652278.986149` | `1793658551.613179` | First page incomplete with cursor; second page complete with null cursor |
+| Private `C0CF32HS0TS` | `1793652282.039119` | `1793658572.354859` | First page incomplete with cursor; second page complete with null cursor |
+| DM `D0CE751HZMY` | `1793651779.045399` | `1793658578.038579` | First page incomplete with cursor; second page complete with null cursor |
+
+Each native request used `limit=1`; each page actually contained the parent and one reply. The first page contained the newly added reply; following the exact opaque returned cursor yielded the original reply. Across both pages the three expected timestamps were present, all Slack-sourced and untruncated. This proves live continuation for these fixtures, not a universal page-size/order guarantee. Callers combining pages should deduplicate by message timestamp and follow the returned cursor; a final page's `complete=true` indicates the end of pagination, not that earlier pages can be discarded. No cursor was fabricated or decoded for the follow-up request.
+
+A self-contained prompt has been supplied for the intended Dot to reconcile/create one native subscription for private channel `C0CF32HS0TS` and one for DM `D0CE751HZMY`, preserving the existing public automation and paused temporary thread automation. This time the saved instructions explicitly authorize one verified threaded Slack reply only upon receipt of the exact human marker `SLACKDOT-PRIVATE-E2E-20261102` or `SLACKDOT-DM-E2E-20261102` in its respective conversation. The expected replies are “SlackDot private event reply passed.” and “SlackDot DM event reply passed.”, with stable request IDs `slackdot-private-event-reply-20261102` and `slackdot-dm-event-reply-20261102`. Dot must report creation/readiness before any human marker is posted; no readiness or event-reply pass is claimed yet. No polling schedule is requested. These tests still need the authenticated manual outbox runner and do not demonstrate an external scheduler.
+
+Dot subsequently reported successful identity verification and exactly one new enabled native subscription for each requested conversation, with no polling or Slack messages. Reported readiness was 4:30:04 p.m. CST for the private channel and 4:30:13 p.m. CST for the DM. Hosted logs independently show successful JSON-RPC `events/subscribe` results: request `ce1180b50f6b2abfa963fc53d9eca5bf` at 22:30:03.002 UTC and request `ce1a9d66f98a38cfc17387e2b0e7f2cb` at 22:30:13.135 UTC. Both used the approved callback origin and absent `ttlMs`. The filter-to-request correspondence follows Dot's reported order; bounded logs deliberately omit filter values. The original public-channel automation remains enabled and the earlier temporary thread automation remains paused. Readiness now passes; human markers, manual delivery, and native-event-triggered replies are the next checks.
+
+### Private/DM ingress and pending-work redeployment check, 2026-11-02
+
+After subscription readiness, the user posted both exact markers as human-authored top-level messages. Read-only live D1 inspection confirmed these normalized events and exactly one pending delivery per marker, each with attempts `0`, no claim, and no last error:
+
+| Conversation | Human marker timestamp | Native event ID |
+|---|---|---|
+| Private `C0CF32HS0TS` | `1793658780.105839` | `evt_132049173a2620fba028c01e1a0a5af85e5cdfa4858ac9e91a6102ff15a56883` |
+| DM `D0CE751HZMY` | `1793658800.210949` | `evt_6158e39f725c765f009a3ac7ae96630348f6a8b5c80869f1b96bd54dc7be6885` |
+
+Both normalized payloads had exact expected marker text and human author `U6AM6NLQ5`; unrelated payload text was omitted from diagnostic output. Native thread reads independently confirmed both markers. Ingress logs around these posts returned HTTP 200 with accepted acknowledgment timings of 194, 113, and 101 ms; the bounded logs omit payload identity, so no one-to-one mapping of all three ingress requests to the two messages is claimed. D1 contained only one logical job per marker.
+
+To exercise hosted persistence while work was pending, the same saved version 7 (`appgprj_6ae8ea0e10708191b688ea6b34e404d7~appgver_5d760e8d1b088191a14fe6b37f570a48`, source `2753147f2f291e0ab8f111498693f588ccbae2ef`) was redeployed. Deployment `appgdep_6ae90fe3f7e88191989c69c706e6b014` succeeded at 22:34:19.121 UTC with unchanged environment revision 11. No application code, secret, audience, plugin, or subscription configuration was changed. A complete outbox read after deployment exactly matched all pre-deployment rows, including both pending jobs.
+
+One authenticated manual runner invocation then completed from 22:34:42.690 to 22:34:49.575 UTC with HTTP 200 and `processed=2`. Hosted request `4871b87114585ecb50ed41d2a4884193` was recorded at 22:34:47.479 UTC. Subsequent live outbox readback showed both marker jobs `delivered`, attempts `1`, null claims/leases, and no last error. This establishes successful real OpenAI callback acceptance after pending-work recovery across a hosted deployment. It is not a transient-failure retry or autonomous-scheduler pass. Immediate thread reads still contained only the human markers; Dot's native event-run reports and the configured replies remain pending. No manual Slack reply or second trigger invocation was sent.
+
+### Private/DM native event-triggered replies passed, 2026-11-02
+
+The user relayed Dot's successful native event-run reports for both exact event IDs in the preceding table. Dot verified each marker, sent its configured reply once, and read it back as bot `U0CF1MF96D6`. No manual reply request, retry, or subscription change was made.
+
+| Conversation | Verified reply timestamp | Exact bot reply |
+|---|---|---|
+| Private `C0CF32HS0TS` | `1793658967.150869` | SlackDot private event reply passed. |
+| DM `D0CE751HZMY` | `1793658954.613949` | SlackDot DM event reply passed. |
+
+Independent native prototype thread reads confirmed exactly the human parent and the expected bot reply in each correct thread, with `complete=true`, null cursor, and no truncation. Hosted bot-reply ingress was accepted at 22:35:54.873 UTC (request `d6fd01a7c5f86518a02565651a4a9207`) and 22:36:07.445 UTC (request `a20b962e2e29bc1875030a9a14176be5`), both with `ack_ms=0` at runtime clock resolution. A complete post-reply D1 outbox read still contained exactly the three human marker jobs, all delivered with one attempt and no error. There were no bot-reply fanout jobs. This completes private-channel and DM native event-to-threaded-reply checks, following a manual outbox trigger, and verifies their self-loop suppression.
+
 ### Live-test handoff (current)
 
 Use the existing checkout and native plugin above. Start with `slack_get_connection_info`; verify workspace `T6BL7UHQF`, app `A0CDRUNRFK9`, bot user `U0CF1MF96D6`, and bot ID `B0CF1MF7L4Q` (obtained from hosted auth.test). The user explicitly authorized synthetic messages and threaded replies in public channel `C0CE0REVDU1`, private channel `C0CF32HS0TS`, and bot DM `D0CE751HZMY`. The user configured `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` as Sites secrets; never retrieve or print their values.
 
-Public/private/DM posting, replay, and thread reads are complete. Slack HTTP configuration, human-message durable acceptance, native callback verification, and native event receipt with one manual runner invocation pass. The intended dot retains an enabled native public-channel subscription; reuse/reconcile it rather than creating a duplicate. The exact observed and independently checked origin `https://connectors.api.openai.com` is active in `CALLBACK_ALLOWED_ORIGINS`. Do not substitute the unrelated general Slack connector, which cannot access these IDs. The configured private ChatGPT notification and a subsequently requested threaded Slack reply both succeeded. The external delivery scheduler has not been provisioned, and automatic Slack reply behavior has not been tested; do not claim unattended delivery or replies. Preserve the current plugin, Site, audience, and owner checks.
+Public/private/DM posting, replay, thread reads, cursor continuation, and native event receipt pass. Private/DM native event runs produced the configured threaded replies without manual reply requests. Human-message durable acceptance, native callback verification, hosted pending-work persistence, and bot self-loop suppression pass. The intended Dot retains the original enabled public subscription and, as last reported, the enabled private/DM marker-test subscriptions; the temporary public thread automation is paused and its pause-to-unsubscribe path passed. Preserve/reconcile these states rather than creating duplicates or treating the paused task as deleted. The exact verified origin `https://connectors.api.openai.com` remains the sole callback allowlist entry. Do not substitute the unrelated general Slack connector. Outbox execution still needs a manual trigger; an enabled subscription is not an autonomous delivery service.
+
+The prototype evaluation checkpoint is preserved as `compatibility-prototype-v2` (the evidence/test snapshot, not a new deployed Site version). Remaining evidence is narrowly identified: hosted autonomous delayed retry under an actual scheduler, automatic native renewal across the finite subscription lifetime, and a signed-in non-owner test when another identity is available. Do not revoke the real bot installation just to replace existing local revocation coverage. No deferred product feature is authorized by this checkpoint. The full reliability gate remains open, while the core Sites/MCP/Slack compatibility questions now have positive live evidence.
 
 Minimal auxiliary design: a separately operated durable scheduler invokes POST `/internal/deliver` once per minute over HTTPS with a 32-byte random bearer secret, retries failed invocations, and alerts on repeated failures. Each invocation scans due D1 rows, recovering the persist-before-schedule gap even after deployment. Store the bearer only in the scheduler's secret store and Sites runtime settings. The scheduler must keep running without a browser or Slack traffic. Provisioning it requires a separate explicit service choice; it has not been provisioned.
 

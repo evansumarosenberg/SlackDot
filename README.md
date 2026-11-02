@@ -30,6 +30,8 @@ slack_send_message requires request_id. Repeating a completed identical request 
 
 slack_get_thread returns Slack-sourced messages, pagination and completeness. It does not fabricate cached context when the installed token cannot read a thread. Public/private/DM behavior requires real testing.
 
+Live public/private/DM cursor continuation is verified for the synthetic fixtures in the results document. Follow `next_cursor` until null; when combining pages, deduplicate by `message_ts` because the parent can recur. A final page's `complete=true` marks the end of pagination. Do not assume `limit` equals the total returned message count or infer ordering from one fixture.
+
 Delivery uses leases, eight attempts, a 24-hour retry horizon, a minimum 60-second initial delay and a one-hour cap. Revocation/access is checked before delivery; expired/unsubscribed records stop sending once observed. An already in-flight HTTP send cannot be recalled. Callback 410/413 and permanent 4xx responses are terminal. Accepted receipt/event/terminal records have a seven-day retention target, maintained by the delivery runner; pending jobs and uncertain writes are preserved. Monitor trigger failure because cleanup also depends on it.
 
 ## Live evidence

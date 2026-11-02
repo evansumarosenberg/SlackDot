@@ -1,6 +1,6 @@
 # SlackDot compatibility prototype plan
 
-Status: core hosted integration and manual round trip passed; external durable trigger required, remaining native checks open (see [results](compatibility-prototype-results.md))
+Status: core prototype evaluation complete; private/DM native event-triggered replies and hosted pending-work recovery passed; auxiliary durable trigger remains required for full reliability (see [results](compatibility-prototype-results.md))
 Last updated: 2026-11-02  
 Target specification: [SlackDot specification](specification.md)
 
