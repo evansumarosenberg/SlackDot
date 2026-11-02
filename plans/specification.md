@@ -1,6 +1,6 @@
 # SlackDot specification
 
-Status: Sites-only bounded delivery and best-effort failure feedback accepted; implementation and verification are required within the compatibility prototype before decision and handoff. External schedulers/services are disallowed.
+Status: Sites-only bounded delivery and best-effort failure feedback implemented and verified in the compatibility prototype. The feasibility decision and transition checkpoint are recorded; full-product implementation remains. External schedulers/services are disallowed.
 Last updated: 2026-11-02  
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
 
@@ -10,7 +10,7 @@ SlackDot is a TypeScript Slack app that exposes an MCP server so an OpenAI dot c
 
 ChatGPT Sites is the intended application deployment platform. The Site will be public so Slack can reach its webhook endpoint without encountering a ChatGPT sign-in gate. Sensitive application operations remain authenticated and authorized.
 
-This document records the full target behavior. It distinguishes that target from capabilities that still require a hosted compatibility test. A local compatibility implementation now exists; see [prototype results](compatibility-prototype-results.md) for evidence and outstanding hosted checks.
+This document records the full target behavior. It distinguishes that target from capabilities that still require a hosted compatibility test. The hosted compatibility prototype passes the accepted bounded contract; see [prototype results](compatibility-prototype-results.md) for evidence, scope, and remaining production verification.
 
 ## 2. Accepted decisions
 
@@ -403,8 +403,8 @@ Retention must be bounded and documented before production. A proposed starting 
 | Question | Current evidence | Required resolution |
 | --- | --- | --- |
 | Does Bolt run in the Sites Worker runtime? | Hosted auth.test, native reads/writes, and signed Slack ingress pass. Version 7 durably accepted a human marker in 184 ms and delivered it to the intended dot after a manual trigger. | Retain the verified receiver and transport; full load/performance testing is outside this prototype. |
-| Does the Site-created plugin support MCP Events? | Native discovery, subscribe, signed callback verification, and public/private/DM event receipt pass on version 7. Private/DM events triggered verified threaded bot replies. Subscriptions and pending jobs survived redeployment. Pausing a temporary automation sent events/unsubscribe and received a successful handler result. | Reverify the round trip without the manual delivery trigger after implementing bounded automatic delivery. Automatic native renewal remains untested. |
-| Does bounded delivery and failure feedback work entirely on Sites? | The Worker receives an ExecutionContext but ingress currently does not start delivery. Existing manual-trigger and 60.131-second local recovery tests prove earlier behavior, not the newly accepted design. | Implement and verify automatic post-commit delivery, short budgeted retries, terminalization, and best-effort threaded notices in the compatibility prototype before decision/handoff. Record interruption limits; do not require or introduce an external scheduler. |
+| Does the Site-created plugin support MCP Events? | Native discovery, subscribe, signed callback verification, and public/private/DM event receipt pass on version 7. Private/DM events triggered verified threaded bot replies. Subscriptions and pending jobs survived redeployment. Pausing a temporary automation sent events/unsubscribe and received a successful handler result. | Automatic public/private/DM round trips also pass on clean version 9 without a manual delivery trigger. Automatic native renewal remains untested. |
+| Does bounded delivery and failure feedback work entirely on Sites? | Clean version 9 implements automatic post-commit delivery, shared deadlines, short retries, terminal state, and deduplicated notices. The 54-test suite and built-Worker failure matrix pass. A controlled hosted fixture exhausted three attempts and produced one real, verified threaded Slack notice; its temporary hook was removed. | Real automatic public/private/DM round trips pass on clean version 9: first-attempt delivery in about 1.3 seconds, one verified bot reply each, no failure notice or self-loop. The controlled fixture is not evidence of an actual OpenAI outage. Retain the accepted interruption limits; no external scheduler is permitted. |
 | Is public hosting compatible with owner-only MCP access? | Native owner calls pass; hosted anonymous and forged-header probes are rejected. | Test a signed-in non-owner; retain the proven owner and ingress checks. |
 | Can callback egress checks be satisfied in Workers? | Exact-origin restriction is active for the independently checked OpenAI hostname; native challenge and delivery pass. Redirect/private-destination rejection is covered locally. | Retain exact-origin policy and independently verify any future destination changes; arbitrary destination DNS pinning is not claimed. |
 | Can this bot read channel threads? | Live public, private, and DM reads pass with the installed bot token. Three-message fixtures also passed native cursor continuation in all three types, with the parent repeated across pages. | Retain verified support; combine pages by message timestamp and follow opaque cursors. Broader history coverage and page-size/order guarantees are not established by these fixtures. |

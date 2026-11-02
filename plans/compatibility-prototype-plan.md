@@ -1,6 +1,6 @@
 # SlackDot compatibility prototype plan
 
-Status: Step 6 bounded delivery is implemented. Step 7 local matrix and hosted controlled failure feedback pass; clean deployment and automatic public/private/DM event runs remain to verify. Step 8 decision/handoff is deferred until the remaining checks pass. External schedulers/services are explicitly disallowed (see [results](compatibility-prototype-results.md)).
+Status: Steps 6–8 complete. Sites-only bounded-delivery feasibility passed on clean version 9, including automatic public/private/DM round trips and controlled hosted failure feedback. The decision, evidence, accepted limitations, and transition checkpoint are recorded in [results](compatibility-prototype-results.md). External schedulers/services remain explicitly disallowed; full-product work is subsequent scope.
 Last updated: 2026-11-02  
 Target specification: [SlackDot specification](specification.md)
 
