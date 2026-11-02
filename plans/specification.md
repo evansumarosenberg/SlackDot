@@ -1,6 +1,6 @@
 # SlackDot specification
 
-Status: proposed implementation target; compatibility prototype pending  
+Status: full implementation target; local compatibility prototype implemented, hosted checks pending
 Last updated: 2026-11-02  
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
 
@@ -10,7 +10,7 @@ SlackDot is a TypeScript Slack app that exposes an MCP server so an OpenAI dot c
 
 ChatGPT Sites is the intended application deployment platform. The Site will be public so Slack can reach its webhook endpoint without encountering a ChatGPT sign-in gate. Sensitive application operations remain authenticated and authorized.
 
-This document records the full target behavior. It distinguishes that target from capabilities that still require a hosted compatibility test. No working implementation or verified deployment exists yet.
+This document records the full target behavior. It distinguishes that target from capabilities that still require a hosted compatibility test. A local compatibility implementation now exists; see [prototype results](compatibility-prototype-results.md) for evidence and outstanding hosted checks.
 
 ## 2. Accepted decisions
 

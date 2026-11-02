@@ -1,0 +1,51 @@
+{
+  "display_information": {
+    "name": "SlackDot",
+    "description": "Single-dot Slack compatibility prototype",
+    "background_color": "#172033"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "SlackDot",
+      "always_online": false
+    },
+    "app_home": {
+      "home_tab_enabled": false,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "app_mentions:read",
+        "assistant:write",
+        "channels:read",
+        "channels:history",
+        "chat:write",
+        "groups:read",
+        "groups:history",
+        "im:history",
+        "im:read",
+        "im:write",
+        "reactions:read",
+        "reactions:write",
+        "users:read"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://slackdot-compatibility.paryllax.chatgpt.site/slack/events",
+      "bot_events": [
+        "message.channels",
+        "message.groups",
+        "message.im",
+        "app_mention"
+      ]
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

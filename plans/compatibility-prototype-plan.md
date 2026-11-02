@@ -1,6 +1,6 @@
 # SlackDot compatibility prototype plan
 
-Status: ready for implementation; no steps executed  
+Status: local implementation and focused checks complete; hosted evaluation in progress (see [results](compatibility-prototype-results.md))
 Last updated: 2026-11-02  
 Target specification: [SlackDot specification](specification.md)
 
