@@ -1,4 +1,5 @@
-// Temporary hosted verification fixture. Its Worker import MUST be removed after verification.
+// Archived hosted verification fixture, outside the production import graph.
+// Used only in the instrumented version 8 bundle; the final Worker has no fixture hook.
 // No user-selected destination or content; no real OpenAI request is made by this fixture.
 import {CallbackClient} from '../../lib/events/callback';
 import {deliverEvent} from '../../lib/events/delivery';
