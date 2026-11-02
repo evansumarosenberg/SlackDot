@@ -389,12 +389,12 @@ Retention must be bounded and documented before production. A proposed starting 
 
 | Question | Current evidence | Required resolution |
 | --- | --- | --- |
-| Does Bolt run in the Sites Worker runtime? | Bolt supports custom receivers; Sites provides a Workers-based runtime with Node compatibility. | Bundle and execute the chosen versions in an actual hosted Site. |
-| Does the Site-created plugin support MCP Events? | Sites documents MCP tools; OpenAI documents MCP Events for dots. | Verify event discovery, subscribe, signed callback verification, delivery, refresh, and unsubscribe through the native Site plugin. |
+| Does Bolt run in the Sites Worker runtime? | Hosted auth.test, native reads/writes, and signed Slack callback handling pass on version 5. | Demonstrate durable acceptance and fanout of a non-self message in the live subscription test. |
+| Does the Site-created plugin support MCP Events? | Native discovery lists all three tools and `slack.message.created`; native owner tool calls pass. This local chat has no event-subscription operation. | Verify subscribe, signed callback verification, delivery, refresh, and unsubscribe through a supported Work web/Cloud chat or dot. |
 | Can delayed retries run using Sites alone? | The inspected Sites contract exposes D1/R2 but does not document queue/cron/alarm provisioning. | Prove a supported durable trigger, or record a required external dependency. |
-| Is public hosting compatible with owner-only MCP access? | Sites documents trusted identity headers and public anonymous requests. | Prove real owner authentication and rejection of anonymous, forged-header, and non-owner calls. |
+| Is public hosting compatible with owner-only MCP access? | Native owner calls pass; hosted anonymous and forged-header probes are rejected. | Test a signed-in non-owner; retain the proven owner and ingress checks. |
 | Can callback egress checks be satisfied in Workers? | OpenAI requires HTTPS callback verification and safe destination handling. | Test the supported egress/allowlist strategy and redirect/private-destination rejection. |
-| Can this bot read channel threads? | Current and older official Slack references conflict about bot-token support. | Exercise public-channel, private-channel, and DM thread reads with the actual installation. |
+| Can this bot read channel threads? | Live public, private, and DM reads pass with the installed bot token after the user repaired scopes. Each returned a complete synthetic parent/reply thread. | Retain verified support; multi-page continuation and broader history coverage are not established by the two-message fixtures. |
 
 These are proof obligations, not permission to quietly narrow the target behavior. Unsupported capabilities must be reported with their practical effect and any proposed alternative.
 

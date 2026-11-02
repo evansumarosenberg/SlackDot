@@ -35,15 +35,18 @@ D1 migration: `drizzle/0000_broken_white_queen.sql` and generated Drizzle metada
 | Cancellation/revocation | Passed locally | Expiration, unsubscribe and revoked-access delivery checks |
 | Write idempotency | Passed locally | Success replay, conflicting request ID, concurrent claim, uncertain response never resent |
 | Hosted Bolt/Web API execution | Passed for auth.test | Version 3 owner setup returned the configured workspace/bot user and a bot ID from Slack after the manual-redirect fix |
-| Hosted Slack signature/ack latency | Not tested | Requires a genuine signed Slack event; local workerd ingress measured 8 ms in the focused fixture |
+| Hosted Slack signature/ack latency | Passed for bot callbacks; durable human-message path untested | Genuine signed event callbacks returned 200 in 6–9 ms Worker wall time after configuration repair; self-authored messages are filtered before durable message acceptance |
 | Native catalog forwarding and UI | Passed on version 5 | Native requests received JSON-RPC results (not just HTTP 200): complete discovery, three tools, one event. ChatGPT app details visibly list all four capabilities; desktop status is Connected |
-| Native plugin owner tool call/events lifecycle | Not tested | Native plugin tools are unavailable to this chat; no callback origin or real subscription has been obtained |
+| Native plugin owner tool invocation | Passed on version 5 | New local chat loaded all three tools; connection info matched expected workspace/bot; DM send, replay and thread read succeeded with owner_match=true in hosted logs |
+| Native event lifecycle | Not tested | Event discovery is verified, but this local chat exposes no native subscription operation; requires Work web/Cloud or a dot and a verified callback origin |
 | Public header impersonation | Passed initial hosted probe | Anonymous/forged MCP requests both 401 at Sites ingress; forged setup headers redirect to sign-in, without reflecting forged ID. Signed-in owner setup shows a distinct Site-scoped ID |
 | Signed-in non-owner | Not tested | Requires second identity |
 | Hosted persistence across deployment | Not tested | Local D1 readback does not establish hosted persistence |
 | Autonomous delayed retry | Not tested / Sites-only unsupported by inspected contract | No native trigger declared; no external service provisioned |
-| Public/private/DM thread reads | Not tested | Mock results do not resolve real bot-token behavior |
-| End-to-end Slack → dot → Slack | Not tested | Requires supplied test IDs, secrets, connected dot and callback origin evidence |
+| Public/private/DM thread reads | Passed in all three | Each test thread returned its exact parent and reply from slack.conversations.replies, complete=true, next_cursor=null |
+| Native Slack writes and replay | Passed in all three | Each parent and reply replayed to its original timestamp; each complete thread contained exactly two messages |
+| Live Slack Events configuration | Corrected and verified | User updated configuration; Sites receiver URL is Verified and Socket Mode is false; signed callbacks now reach Sites |
+| End-to-end Slack → dot → Slack | Not tested | Native subscription/callback origin and autonomous scheduler remain unresolved; no event-triggered dot response has occurred |
 
 Initial direct loopback HTTP preview requests timed out despite Wrangler startup. The in-process Miniflare/workerd smoke test succeeded; no browser-rendering claim is made.
 
@@ -67,13 +70,59 @@ Version 5 adds catalog-only diagnostics: numeric error codes, fixed format/outco
 
 ## Topology decision and transition checkpoint
 
-**Outcome 3: material compatibility blockers / incomplete live evidence.** Native catalog discovery and connection are now verified, but native invocation/event delivery and an autonomous trigger still require evidence. The candidate remains Sites with an auxiliary scheduler; neither that topology nor Sites-only reliability is proven. Next, use the connected native plugin in a new conversation to confirm a read-only tool call, then subscribe through the intended dot and establish its real callback origin. No duplicate plugin or alternative host was created.
+**Outcome 3: material compatibility blockers / incomplete live evidence.** Native catalog discovery, owner tool invocation, and public/private/DM writes, replay, and thread reads are verified. The user corrected Slack configuration; verified HTTP ingress now receives signed callbacks. Native event delivery and an autonomous trigger still require evidence. The candidate remains Sites with an auxiliary scheduler; neither that topology nor Sites-only reliability is proven. Next, subscribe through a supported Work web/Cloud chat or the intended dot and establish its real callback origin. No duplicate plugin or alternative host was created.
+
+### Native live test, 2026-11-02
+
+Tested the existing version 5 deployment and source `638df63d2300194f33e4625b3905763d2efd6e82` from a new local chat. No application code, deployment, secrets, audience, plugin, or Slack configuration was changed during this test. The native account with the signed-in `suma@umn.edu` profile was selected; the other unprofiled link was not used. All three native tools were available, resolving the previous chat's stale tool catalog.
+
+`slack_get_connection_info` returned workspace `T6BL7UHQF`, bot user `U0CF1MF96D6`, bot ID `B0CF1MF7L4Q`, event `slack.message.created`, `replay=false`, `durable_trigger=external_scheduler_required`, and `thread_support=requires_live_verification`. The tool does not return an app ID; the Slack settings page independently identifies app `A0CDRUNRFK9` in this workspace. The general Slack connector was not used.
+
+All posted text was synthetic and clearly labeled with run ID `slackdot-native-20261102-01`. Request IDs below must retain their original exact arguments if reused; choose a new run ID for another test.
+
+| Conversation | Request ID suffix (after `slackdot-native-20261102-01-`) | Actual result |
+|---|---|---|
+| Public `C0CE0REVDU1` | `public-parent` | `isError=true`, text error `missing_scope`; wrapper structured error `INVALID_ARGUMENT`. No post occurred: `SlackService.send` calls `access` before claiming a write or posting. |
+| Private `C0CF32HS0TS` | `private-parent` | Same `missing_scope` access failure; no parent/reply created. |
+| DM `D0CE751HZMY` | `dm-parent` | Posted at `1793651779.045399`; identical replay returned this same timestamp and `thread_ts=null`. |
+| DM `D0CE751HZMY` | `dm-reply` | Posted at `1793651810.307849`, threaded under `1793651779.045399`; identical replay returned the same identifiers. |
+
+`slack_get_thread` for that DM parent returned `source=slack.conversations.replies`, `complete=true`, `next_cursor=null`, and exactly two messages with the above timestamps and author `U0CF1MF96D6`; neither text was truncated. This verifies successful native writes, thread placement, and completed-write idempotency across separate hosted invocations. It does not prove ambiguous-outcome reconciliation or persistence across a deployment. A separate request with `limit=1` still returned both messages with no cursor; pagination continuation therefore remains untested. Channel thread support remains unresolved because access validation prevented creating test parents; a scope failure is not evidence that `conversations.replies` rejects this bot token.
+
+Hosted logs correlate native `tools/call` requests with `owner_match=true`. Representative request IDs: connection info `eb3e4c20eeaa0945d4aabf1e3de1c9ae`; DM parent `210e949ff6ee46aae417f1522cc01488`; parent replay `905bc6b66b1688f3a136a02554187f6a`; reply `e5d5803766234de64d7a3a99656375f5`; reply replay `2c059e1e7584672ed4ab2f98d8f39233`; thread read `0f691329ea28f206425b8bafab74157b`. The initial read/write sequence ran at 20:35:53–20:36:56 UTC (2:35:53–2:36:56 p.m. America/Chicago). Native tool bodies establish success/failure; HTTP 200 alone does not. No signed Slack ingress or event subscription was observed in the bounded log sample, and no acknowledgment-latency claim is made.
+
+Read-only inspection of the live Slack Events page and app manifest established:
+
+- App `A0CDRUNRFK9` is named `evan-assistant`, in workspace `T6BL7UHQF`.
+- Events are enabled, but the configured Request URL is `https://ngrok-free.app/slack/events`, displayed as unverified / not responding. Socket Mode is enabled. The configured URL is not the deployed `https://slackdot-compatibility.paryllax.chatgpt.site/slack/events` endpoint.
+- Bot event subscriptions include `app_home_opened`, `app_mention`, `message.channels`, `message.groups`, and `message.im`.
+- The bot scope list lacks `channels:read` and `groups:read`; those scopes exist only in the user scope list. SlackDot uses the bot token. This matches the public/private access failure at `conversations.info`; DM access succeeds with `im:read`. Changing the app's requested scopes alone is insufficient: the installation must be reauthorized, and the configured runtime bot token must carry the grants.
+- The live manifest includes other existing features and user scopes. Do not replace it wholesale with the repository template, remove existing permissions/features, or copy user-token permissions into the prototype. The narrow repair is to add the two specified bot metadata scopes, reauthorize, switch Events to the deployed receiver, and disable Socket Mode for HTTP delivery.
+
+The available tools in this local chat contain the three SlackDot tools and local timer-based automation, but no native event-subscription operation. [Official MCP Events documentation](https://developers.openai.com/plugins/build/mcp-events) specifies Work chats on ChatGPT web, Work chats with Cloud selected on desktop, and dots for MCP Events. No fabricated callback or hand-built authenticated subscription was used as a substitute for that host lifecycle. `CALLBACK_ALLOWED_ORIGINS` remains intentionally unset; callback verification, refresh, unsubscribe, delivery, and end-to-end reply/self-loop checks are not tested. An autonomous scheduler is still unprovisioned; the service-authenticated `/internal/deliver` path remains unchanged.
+
+### Retest after Slack configuration repair, 2026-11-02
+
+After the user reported completing the requested Slack changes, native connection info still matched the configured workspace/bot. Public and private access now succeeds. Run ID `slackdot-native-20261102-02` used fresh request IDs ending in `public-parent`, `public-reply`, `private-parent`, and `private-reply` with clearly labeled synthetic text.
+
+| Conversation | Parent timestamp | Reply timestamp | Result |
+|---|---|---|---|
+| Public `C0CE0REVDU1` | `1793652278.986149` | `1793652292.627579` | Both writes succeeded; each identical replay returned the original result; complete thread read contained exactly these two messages |
+| Private `C0CF32HS0TS` | `1793652282.039119` | `1793652301.277249` | Both writes succeeded; each identical replay returned the original result; complete thread read contained exactly these two messages |
+
+Both reads returned `source=slack.conversations.replies`, `complete=true`, `next_cursor=null`, author `U0CF1MF96D6`, and no truncation. Replies have the correct parent `thread_ts`. Together with the earlier DM run, actual bot-token thread retrieval and successful-write idempotency now pass in all three conversation types. Pagination across multiple pages, ambiguous writes, and persistence across deployment remain untested.
+
+Read-only Slack UI verification showed the Request URL `https://slackdot-compatibility.paryllax.chatgpt.site/slack/events` marked **Verified** and the Socket Mode switch `aria-checked=false`. No Slack configuration or runtime secrets were changed by the agent. Successful channel access demonstrates the installed runtime token now has the needed access; no token value was retrieved.
+
+Hosted logs show real `/slack/events` requests with `slack_ingress` outcome `accepted` and HTTP 200: request `2745d1800ed214ae83b0ddfb476f9005` at 20:44:39.717 UTC (9 ms Worker wall time), `192c1149ae8e209a42821eb3ebb9d8fe` at 20:44:42.631 UTC (9 ms), and `ea9a4bb1b97109c40340f09ce25dc350` at 20:44:53.260 UTC (6 ms). Application `ack_ms` was 0 at the runtime clock's resolution. These callbacks passed signature, freshness, workspace, and app checks and occurred alongside synthetic bot posts. They prove hosted Slack ingress and prompt acknowledgment for filtered bot events, not durable acceptance/fanout of a human message. No message bodies or signing headers were logged in this report, and callback-to-message correlation is temporal rather than payload-based.
+
+Native MCP thread-read request IDs are `d1434e9cb0ca5c41c4dba2d87d3300c5` (public) and `d7da1aa49b0dff845c8d90c9912edb9c` (private). Native calls continued to show owner authorization. The application and existing version 5 deployment remain unchanged. Callback allowlist, native subscription lifecycle, human-message durable acceptance, event-driven replies, and autonomous retry remain the next feasibility checks.
 
 ### Live-test handoff
 
 Use the existing checkout and native plugin above. Start with `slack_get_connection_info`; verify workspace `T6BL7UHQF`, app `A0CDRUNRFK9`, bot user `U0CF1MF96D6`, and bot ID `B0CF1MF7L4Q` (obtained from hosted auth.test). The user explicitly authorized synthetic messages and threaded replies in public channel `C0CE0REVDU1`, private channel `C0CF32HS0TS`, and bot DM `D0CE751HZMY`. The user configured `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` as Sites secrets; never retrieve or print their values.
 
-For each conversation, use unique persistent request IDs to post a clearly labeled synthetic parent and reply, repeat an identical write request to verify idempotency, and read the thread. Record actual API results and limits. Do not substitute the unrelated general Slack connector, which returned channel_not_found for these IDs. Native event testing additionally requires a real host subscription and verified OpenAI callback origin; `CALLBACK_ALLOWED_ORIGINS` is intentionally unset. Do not guess the origin or weaken the allowlist. Slack's live Events request URL still requires verification. The external delivery scheduler has not been provisioned; do not claim unattended delivery until it is tested. Preserve the current plugin, Site, audience, and owner checks.
+Public/private/DM posting, replay, and thread reads are now complete as recorded above; do not repeat those writes with changed arguments. Slack HTTP configuration is corrected and signed bot-event ingress is verified. Next test durable acceptance of a synthetic human message and native event delivery. Do not substitute the unrelated general Slack connector, which cannot access these IDs. Native event testing requires a real host subscription from a supported Work web/Cloud chat or dot and an independently verified OpenAI callback origin; `CALLBACK_ALLOWED_ORIGINS` is intentionally unset. Do not guess the origin or weaken the allowlist. The external delivery scheduler has not been provisioned; do not claim unattended delivery until it is tested. Preserve the current plugin, Site, audience, and owner checks.
 
 Minimal auxiliary design: a separately operated durable scheduler invokes POST `/internal/deliver` once per minute over HTTPS with a 32-byte random bearer secret, retries failed invocations, and alerts on repeated failures. Each invocation scans due D1 rows, recovering the persist-before-schedule gap even after deployment. Store the bearer only in the scheduler's secret store and Sites runtime settings. The scheduler must keep running without a browser or Slack traffic. Provisioning it requires a separate explicit service choice; it has not been provisioned.
 
