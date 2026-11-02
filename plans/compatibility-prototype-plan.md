@@ -40,7 +40,73 @@ The prototype is an implementation experiment, not the full application. A docum
 - Multi-dot ownership or routing, even in the prototype.
 - Comprehensive performance/load tests and abstractions for hypothetical future hosting providers.
 
-## 3. Preconditions and inputs
+## 3. Repository organization and implementation lifecycle
+
+Build one application, with the compatibility prototype as its first implementation milestone. Code that proves viable becomes the foundation of the full application. Keep disposable experiments and test infrastructure separate; do not maintain parallel prototype and production application trees.
+
+### Proposed layout
+
+```text
+SlackDot/
+├── plans/
+│   ├── specification.md
+│   ├── compatibility-prototype-plan.md
+│   └── compatibility-prototype-results.md
+├── app/                    # HTTP routes and minimal Site page
+├── worker/                 # Sites Worker entry point
+├── lib/
+│   ├── slack/              # Bolt receiver, Slack operations, normalization
+│   ├── mcp/                # Protocol handlers, tools, event definitions
+│   ├── events/             # Subscriptions, signing, delivery
+│   └── runtime/            # Environment, identity, execution integration
+├── db/                     # D1 schema and migrations
+├── tests/
+│   ├── unit/
+│   ├── compatibility/      # Hosted integration checks and test harnesses
+│   └── fixtures/           # Synthetic Slack events, redacted MCP exchanges
+├── experiments/            # Disposable probes, only when needed
+├── scripts/                # Sites helpers and operational scripts
+├── .openai/
+│   └── hosting.json
+├── slack-app-manifest.json
+├── .env.example
+└── package.json
+```
+
+Preserve the Sites starter's actual conventions when initializing the application. The tree describes responsibility boundaries, not a requirement to move generated files or create empty directories. Create directories and modules when the prototype needs them.
+
+### Code and test boundaries
+
+- Implement the receiver, owner authorization, three prototype tools, subscription lifecycle, and D1 persistence in the normal application modules. The full application expands these same modules with additional tools and event types.
+- Keep HTTP routes thin. Put Slack operations, event processing, and protocol behavior in modules that can be exercised independently of route wiring.
+- Put hosted compatibility checks, controlled callback receivers, and delayed-delivery harnesses in `tests/compatibility`. They must exercise the same application code that is deployed to Sites.
+- Put synthetic payloads and redacted protocol fixtures in `tests/fixtures`; do not capture credentials or real private conversation content.
+- Use `experiments` only for isolated, disposable questions such as Bolt bundling or a runtime API probe. Keep experiments outside the deployed import graph, move validated findings into application code, and remove obsolete probes.
+- Keep fault injection in test infrastructure or a narrowly injected test transport. Do not ship public debugging endpoints or a broad `PROTOTYPE_MODE` that weakens authentication or changes delivery guarantees.
+- Start with one package, one dependency graph, and one lockfile. Ordinary modules provide sufficient separation. Add a separate deployable package only if the prototype establishes an actual need for an auxiliary delivery service.
+- Do not prebuild generalized hosting adapters, plugin frameworks, or abstractions for deferred product features.
+
+### Git milestones
+
+- Use a short-lived implementation branch such as `codex-compatibility-prototype`, preserving the required Sites source synchronization workflow.
+- Make small commits corresponding to the proof steps so a failed experiment can be understood and revised independently.
+- Record the exact tested commit and associated Site version/deployment in the results document.
+- At evaluation, preserve the tested prototype with a tag such as `compatibility-prototype-v1`, recording whether the feasibility checks passed or remain blocked. A tag is a reproducibility marker, not a production-readiness claim.
+- Integrate the validated application foundation into the main development line. Git history and the tag preserve the prototype; do not retain a second permanent application directory or long-lived prototype branch.
+
+### Transition to the full application
+
+After evaluating the prototype, perform an explicit transition checkpoint:
+
+1. Review the compatibility evidence and resolve or document each deployment dependency and blocker.
+2. Identify which implementation choices are retained, replaced, or removed. Passing a compatibility check does not automatically make its implementation production-ready.
+3. Remove obsolete experiments and test-only deployment behavior. Retain useful automated compatibility checks and fixtures as regression coverage.
+4. Update the specification with confirmed findings and any explicitly accepted changes.
+5. Plan the remaining product work against the full specification's acceptance criteria, then expand the same application incrementally.
+
+This checkpoint does not expand the prototype's scope. Deferred product features remain subsequent work, and the full specification determines production readiness.
+
+## 4. Preconditions and inputs
 
 Before live integration testing, obtain or configure:
 
@@ -56,11 +122,12 @@ No actual Site, Slack app, token, callback URL, or test conversation has been pr
 
 The public audience is an accepted design decision. The implementation must use the native Sites workflow to configure it explicitly; it must not accidentally leave the MCP data operations publicly callable.
 
-## 4. Evidence to collect
+## 5. Evidence to collect
 
 Create `plans/compatibility-prototype-results.md` during execution. Record:
 
 - Dependency versions, build/runtime configuration, and protocol version.
+- The exact tested Git commit and prototype tag, when created.
 - Site/version/deployment identifiers and the Site-created plugin identifier.
 - Each hypothesis as passed, failed, or not tested, with the date and observed behavior.
 - Redacted MCP request/response fixtures and HTTP status results.
@@ -72,12 +139,12 @@ Create `plans/compatibility-prototype-results.md` during execution. Record:
 
 Do not store bot tokens, signing secrets, callback secrets, callback URLs containing credentials, or real message content in that report. Use synthetic test text and redacted identifiers where practical.
 
-## 5. Work packages
+## 6. Work packages
 
 ### Step 1: Establish a minimal Sites runtime
 
 1. Recheck the relevant Sites hosting instructions and the current OpenAI MCP Events profile.
-2. Initialize the supported server starter in the repository, preserving its Sites build integration.
+2. Initialize the supported server starter in the repository on the prototype implementation branch, preserving its Sites build integration and following the repository organization above. Implement the prototype in the normal application modules.
 3. Add the MCP and D1 declarations through the supported manifest workflow.
 4. Pin compatible TypeScript, Bolt, MCP SDK, schema-validation, and Standard Webhooks dependencies.
 5. Implement a public non-sensitive `/health` response and fail clearly when required runtime secrets are absent.
@@ -148,7 +215,7 @@ This step is a required feasibility test, not optional production hardening.
 1. Inspect the supported Sites deployment capabilities for native queue consumers, scheduled triggers, or other durable wake-up mechanisms. Distinguish generic Cloudflare features from features actually configurable through Sites.
 2. If a native mechanism is supported, provision a minimal instance through the supported workflow and connect it to the D1 outbox.
 3. Claim work atomically, check subscription validity before sending, and persist retry/outcome state.
-4. Inject a controlled transient failure before a delivery succeeds. Do not fabricate a production OpenAI callback response; use a bounded test seam or an authenticated test receiver.
+4. Inject a controlled transient failure before a delivery succeeds. Do not fabricate a production OpenAI callback response; use a bounded test seam or an authenticated test receiver under `tests/compatibility`, without adding public production debugging routes.
 5. Schedule the successful retry at least 60 seconds later, after Slack's original request and its `waitUntil()` window have ended.
 6. Close the browser and send no further Slack messages. Confirm the retry occurs solely through the durable trigger.
 7. Repeat with pending work across a deployment or simulated interruption. Verify recovery of work saved before its execution trigger was established.
@@ -195,7 +262,9 @@ Complete the results document with one of these outcomes:
 
 Update the main specification only with confirmed findings and clearly identified proposed changes. Do not declare the full product implemented when only the prototype passes.
 
-## 6. Completion criteria
+Record the tested commit/deployment and preserve the evaluated prototype with the Git milestone described above. Complete the transition checkpoint, documenting retained code and required replacements before planning the remaining application features.
+
+## 7. Completion criteria
 
 The prototype work is complete when the compatibility questions have concrete evidence and the results document explains the viable topology or blocker. Passing the full feasibility gate requires:
 
@@ -210,13 +279,14 @@ The prototype work is complete when the compatibility questions have concrete ev
 
 If a live input is unavailable, mark the corresponding check not tested. If a platform feature fails, record the failure and its consequence. Neither case counts as a passed feasibility gate.
 
-## 7. Expected deliverables
+## 8. Expected deliverables
 
-- Minimal TypeScript application using the supported Sites build/deployment structure.
+- Minimal TypeScript application using the supported Sites build/deployment structure, in the same application tree that will grow into the full product.
 - Slack app manifest, `.env.example` with key names only, and concise setup instructions.
 - D1 schema/migrations for the prototype's actual state needs.
 - Focused tests and redacted protocol fixtures.
 - A public deployed Site and its native plugin connection, if deployment prerequisites are available.
 - `plans/compatibility-prototype-results.md` with the evidence and final topology decision.
+- A recorded tested Git commit/prototype tag and transition notes identifying retained code, temporary choices to replace, and the remaining full-application work.
 
 This plan does not authorize building deferred product features as part of the prototype. Preserve the single-dot constraint and keep the experiment focused on the integration boundaries.
