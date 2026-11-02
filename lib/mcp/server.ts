@@ -46,9 +46,14 @@ export function server(env: Env, principal: string) {
 }
 export async function handleMcp(request: Request, env: Env) {
   let method='invalid';
+  let requestMeta={version_match:false,client_info_present:false,client_capabilities_present:false};
   try {
     const parsed=JSON.parse(await boundedText(request.clone(),65536));
     if (['server/discover','initialize','tools/list','tools/call','events/list','events/subscribe','events/unsubscribe'].includes(parsed.method)) method=parsed.method;
+    const meta=parsed.params?._meta;
+    requestMeta={version_match:meta?.['io.modelcontextprotocol/protocolVersion']==='2026-07-28',
+      client_info_present:Boolean(meta?.['io.modelcontextprotocol/clientInfo']),
+      client_capabilities_present:Boolean(meta?.['io.modelcontextprotocol/clientCapabilities'])};
   } catch { /* SDK owns malformed-request responses. Never log bodies. */ }
   const caller=request.headers.get('oai-authenticated-user-id');
   console.info(JSON.stringify({component:'mcp',method,identity_present:Boolean(caller),owner_match:Boolean(caller && caller===env.OWNER_USER_ID),
@@ -58,6 +63,21 @@ export async function handleMcp(request: Request, env: Env) {
   catch(e) { return Response.json({error:e instanceof Failure ? e.category : 'unauthorized'},{status:e instanceof Failure && e.category==='unauthorized' ? 403 : 503}); }
   const handler=createMcpHandler(()=>server(env,principal),{legacy:'reject',responseMode:'auto',maxRequestBodySize:65536,maxSubscriptions:0,keepAliveMs:0});
   const response=await handler.fetch(request);
+  // Catalog-only summaries distinguish HTTP success from JSON-RPC failure. Never log response bodies,
+  // arbitrary keys/messages, call results, request arguments, identities, or callback credentials.
+  if (['server/discover','tools/list','events/list'].includes(method)) {
+    const json=response.headers.get('content-type')?.includes('application/json');
+    let summary:Record<string,unknown>={outcome:'non_json'};
+    if(json) try {
+      const body=JSON.parse(await boundedText(response.clone(),65536));
+      summary={outcome:body.error?'rpc_error':body.result?'result':'invalid_envelope',
+        error_code:typeof body.error?.code==='number'?body.error.code:undefined,
+        complete:body.result?.resultType==='complete',
+        tool_count:Array.isArray(body.result?.tools)?body.result.tools.length:undefined,
+        event_count:Array.isArray(body.result?.events)?body.result.events.length:undefined};
+    } catch { summary={outcome:'unreadable_json'}; }
+    console.info(JSON.stringify({component:'mcp_catalog',method,status:response.status,...requestMeta,...summary}));
+  }
   response.headers.set('Cache-Control','private, no-store');
   return response;
 }
