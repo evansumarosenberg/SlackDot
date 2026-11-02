@@ -1,6 +1,6 @@
 # Compatibility prototype results
 
-Evaluation date: 2026-11-02. Status: local implementation validated; hosted evaluation in progress. This is not a production-readiness claim.
+Evaluation date: 2026-11-02. Status: implementation and local validation complete; hosted feasibility gate incomplete. This is not a production-readiness claim.
 
 ## Review findings and decisions
 
@@ -36,7 +36,8 @@ D1 migration: `drizzle/0000_broken_white_queen.sql` and generated Drizzle metada
 | Write idempotency | Passed locally | Success replay, conflicting request ID, concurrent claim, uncertain response never resent |
 | Hosted Bolt/Web API execution | Passed for auth.test | Version 3 owner setup returned the configured workspace/bot user and a bot ID from Slack after the manual-redirect fix |
 | Hosted Slack signature/ack latency | Not tested | Requires a genuine signed Slack event; local workerd ingress measured 8 ms in the focused fixture |
-| Native plugin owner call/events | Not tested | Requires publication, verified identity and dot connection |
+| Native catalog forwarding | Partially demonstrated | Hosted logs show authenticated modern server/discover, tools/list and events/list requests receiving HTTP 200. User reported missing catalog in the plugin UI; actual native tool invocation/subscription still unverified |
+| Native plugin owner tool call/events lifecycle | Not tested | Native plugin tools are unavailable to this chat; no callback origin or real subscription has been obtained |
 | Public header impersonation | Passed initial hosted probe | Anonymous/forged MCP requests both 401 at Sites ingress; forged setup headers redirect to sign-in, without reflecting forged ID. Signed-in owner setup shows a distinct Site-scoped ID |
 | Signed-in non-owner | Not tested | Requires second identity |
 | Hosted persistence across deployment | Not tested | Local D1 readback does not establish hosted persistence |
@@ -54,17 +55,21 @@ Initial hosted source commit: `3ee5b7647ca0b2749e5ac49b6853c03e3ed81511`. Site v
 
 Owner identity was obtained by an actual Sites sign-in, not inferred from the account ID. Runtime identity trust was enabled only after the hosted public-header probe. Slack secrets were supplied by the user in Sites; encryption and service-trigger secrets were generated directly into secret runtime configuration. No secret values were written to repository files.
 
-The evaluated tag and subsequent deployment evidence will be added after evaluation. No Slack secrets, callback URLs or real message content belong here.
+Evaluated application commit: `bbaa39b4167e753d4c7be44f2406862c1d4807f3`, preserved as `compatibility-prototype-v1`. The report is updated in a subsequent documentation commit; the tag marks evaluated application code, not a full feasibility pass. No Slack secrets, callback URLs or real message content belong here.
 
-Version 3 source `e6401b6b39b81004824b44e503fe17e508110c24`, saved version `appgprj_6ae8ea0e10708191b688ea6b34e404d7~appgver_bd6e3373196081919f0d2c8764751006`, deployment `appgdep_6ae8ef4ce3208191898071b41fe75d72` succeeded at 20:15:19 UTC. The owner setup page then completed live Slack auth.test. A later environment-only redeployment (`appgdep_6ae8ef78e70c8191af325fa2413bb750`) failed with "Project lifecycle changed while publishing." Health subsequently returned 503 while the project still reported active/public. Reconciliation is in progress.
+Version 3 source `e6401b6b39b81004824b44e503fe17e508110c24`, saved version `appgprj_6ae8ea0e10708191b688ea6b34e404d7~appgver_bd6e3373196081919f0d2c8764751006`, deployment `appgdep_6ae8ef4ce3208191898071b41fe75d72` succeeded at 20:15:19 UTC. The owner setup page then completed live Slack auth.test. A later environment-only redeployment (`appgdep_6ae8ef78e70c8191af325fa2413bb750`) failed with "Project lifecycle changed while publishing." Health subsequently returned 503 while the project still reported active/public.
+
+Recovery succeeded with version 4 (`appgprj_6ae8ea0e10708191b688ea6b34e404d7~appgver_49a2bb756f4c8191819a1cc06e4ab485`), deployment `appgdep_6ae8f02c0c688191b45f875fcf6a9794`, runtime environment revision 9, at 20:19:01 UTC. The post-deployment probe passes: health 200, anonymous and forged MCP 401, forged setup headers 307 to sign-in. Hosted logs show native modern catalog requests returning 200 on this deployment as well. No authentication bypass or public catalog exception was added.
 
 The user reports the native plugin page is missing tools or events. The existing general Slack connector cannot access the supplied test conversations (`channel_not_found`), and the browser requires Slack sign-in. No synthetic messages have been sent through that unrelated connector, and it is not used as evidence of bot-token access. Test posts/replies in the dedicated conversations are authorized, pending a working path.
 
 ## Topology decision and transition checkpoint
 
-**Full feasibility gate remains blocked on live evidence.** The candidate is Sites with an auxiliary scheduler; neither that topology nor Sites-only reliability is yet proven. Minimal auxiliary design: a separately operated durable scheduler invokes POST `/internal/deliver` once per minute over HTTPS with a 32-byte random bearer secret, retries failed invocations, and alerts on repeated failures. Each invocation scans due D1 rows, recovering the persist-before-schedule gap even after deployment. Store the bearer only in the scheduler's secret store and Sites runtime settings. The scheduler must keep running without a browser or Slack traffic. Provisioning it requires a separate explicit service choice; it has not been provisioned.
+**Outcome 3: material compatibility blockers / incomplete live evidence.** The missing native catalog/tool availability and absence of a supported autonomous trigger prevent a full feasibility pass. The candidate remains Sites with an auxiliary scheduler; neither that topology nor Sites-only reliability is proven. First refresh/reconnect the existing native plugin in a new Work chat and confirm a read-only tool call, then subscribe through the intended dot and establish its real callback origin. If the native plugin still cannot expose the catalog, an independently registered MCP plugin/host would change the accepted native Sites requirement and is only a proposed alternative, not implemented.
 
-Retain the application modules, D1 schema, SDK adapter and focused regression tests. Before full implementation, demonstrate the real callback allowlist, owner identity boundary, native event forwarding, Slack thread support, hosted acknowledgment timing and durable wake-up. Replace the external-trigger dependency with a Sites-native trigger only if actual supported provisioning is established. Retain conservative ambiguous-write behavior until reconciliation is implemented. Add production retention monitoring and operational diagnostics; cleanup runs only when the delivery trigger runs. The full tool catalog, edits/reactions, discovery and broader product work remain deferred.
+Minimal auxiliary design: a separately operated durable scheduler invokes POST `/internal/deliver` once per minute over HTTPS with a 32-byte random bearer secret, retries failed invocations, and alerts on repeated failures. Each invocation scans due D1 rows, recovering the persist-before-schedule gap even after deployment. Store the bearer only in the scheduler's secret store and Sites runtime settings. The scheduler must keep running without a browser or Slack traffic. Provisioning it requires a separate explicit service choice; it has not been provisioned.
+
+Retain the application modules, D1 schema, SDK adapter and focused regression tests. Before full implementation, demonstrate the real callback allowlist, native owner tool invocation/event forwarding, Slack thread support, hosted acknowledgment timing and durable wake-up. Replace the external-trigger dependency with a Sites-native trigger only if actual supported provisioning is established. Retain conservative ambiguous-write behavior until reconciliation is implemented. Add production retention monitoring and operational diagnostics; cleanup runs only when the delivery trigger runs. The full tool catalog, edits/reactions, discovery and broader product work remain deferred. Keep the implementation branch while the feasibility gate is open; integration into main is deferred until the remaining boundary evidence is resolved.
 
 ## Sources checked
 

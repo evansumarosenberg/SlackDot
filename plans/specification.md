@@ -1,6 +1,6 @@
 # SlackDot specification
 
-Status: full implementation target; local compatibility prototype implemented, hosted checks pending
+Status: full implementation target; prototype implemented and deployed, full feasibility unproven
 Last updated: 2026-11-02  
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
 
