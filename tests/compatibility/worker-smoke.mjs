@@ -5,12 +5,14 @@ import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { Webhook } from 'standardwebhooks';
+const recovery=process.argv.includes('--recovery');
 const callbackSecret=`whsec_${Buffer.alloc(32,7).toString('base64')}`;
 const triggerSecret='synthetic-trigger-secret-at-least-32-characters';
 let verificationCalls=0,deliveryCalls=0;
+const deliveryAttempts=[];
 const root=resolve('dist/server');
 const modules=readdirSync(root,{recursive:true}).filter(f=>String(f).endsWith('.js')).map(String).sort((a,b)=>a==='index.js'?-1:b==='index.js'?1:a.localeCompare(b));
-const runtime=new Miniflare({modules:modules.map(file=>({type:'ESModule',path:resolve(root,file)})),modulesRoot:root,
+const options={modules:modules.map(file=>({type:'ESModule',path:resolve(root,file)})),modulesRoot:root,
   compatibilityDate:'2026-05-15',compatibilityFlags:['nodejs_compat'],
   d1Databases:['DB'],d1Persist:resolve('.wrangler/smoke',crypto.randomUUID()),
   bindings:{OWNER_USER_ID:'owner',SITES_IDENTITY_VERIFIED:'true',SLACK_BOT_TOKEN:'synthetic-token',SLACK_SIGNING_SECRET:'synthetic-signing-secret',SLACK_TEAM_ID:'TTEST',SLACK_BOT_ID:'BBOT',SLACK_BOT_USER_ID:'UBOT',SLACK_APP_ID:'ATEST',
@@ -20,7 +22,8 @@ const runtime=new Miniflare({modules:modules.map(file=>({type:'ESModule',path:re
     if(new URL(request.url).origin==='https://receiver.example.com') {
       assert.equal(request.method,'POST');
       assert.ok(request.headers.get('x-mcp-subscription-id')?.startsWith('sub_'));
-      const payload=new Webhook(callbackSecret).verify(await request.text(),Object.fromEntries(request.headers));
+      const raw=await request.text();
+      const payload=new Webhook(callbackSecret).verify(raw,Object.fromEntries(request.headers));
       if(payload.type==='verification') {
         verificationCalls++;assert.equal(typeof payload.challenge,'string');
         return Response.json({challenge:payload.challenge});
@@ -28,6 +31,8 @@ const runtime=new Miniflare({modules:modules.map(file=>({type:'ESModule',path:re
       deliveryCalls++;assert.equal(payload.name,'slack.message.created');
       assert.equal(payload.eventId,request.headers.get('webhook-id'));
       assert.equal(payload.data.text,'Synthetic delivery smoke');
+      deliveryAttempts.push({body:raw,id:request.headers.get('webhook-id'),timestamp:request.headers.get('webhook-timestamp'),signature:request.headers.get('webhook-signature'),at:Date.now()});
+      if(recovery && deliveryCalls===1) return new Response(null,{status:503});
       return new Response(null,{status:204});
     }
     assert.equal(new URL(request.url).origin,'https://slack.com');
@@ -35,11 +40,12 @@ const runtime=new Miniflare({modules:modules.map(file=>({type:'ESModule',path:re
     assert.equal(new URL(request.url).pathname,'/api/auth.test');
     return Response.json({ok:true,team_id:'TTEST',user_id:'UBOT',bot_id:'BBOT'});
   },
-});
+};
+let runtime=new Miniflare(options);
 try {
   const health=await runtime.dispatchFetch('http://localhost/health');assert.equal(health.status,200);assert.equal((await health.json()).service,'SlackDot');
   const denied=await runtime.dispatchFetch('http://localhost/mcp',{method:'POST',headers:{'content-type':'application/json','oai-authenticated-user-id':'forged'},body:'{}'});assert.equal(denied.status,403);
-  const db=await runtime.getD1Database('DB');
+  let db=await runtime.getD1Database('DB');
   const sql=readFileSync('drizzle/0000_broken_white_queen.sql','utf8');
   for(const statement of sql.split('--> statement-breakpoint').map(v=>v.trim()).filter(Boolean)) await db.prepare(statement).run();
   await db.prepare('INSERT INTO receipts(id,accepted_at) VALUES (?,?)').bind('synthetic-smoke',0).run();
@@ -71,10 +77,35 @@ try {
   assert.equal((await runtime.dispatchFetch('http://localhost/slack/events',{method:'POST',headers:{'x-slack-request-timestamp':ts,'x-slack-signature':incomingSignature},body:incomingBody})).status,200);
   const delivered=await runtime.dispatchFetch('http://localhost/internal/deliver',{method:'POST',headers:{Authorization:`Bearer ${triggerSecret}`}});
   assert.equal(delivered.status,200);assert.equal((await delivered.json()).processed,1);assert.equal(deliveryCalls,1);
+  if(recovery) {
+    const pending=await db.prepare('SELECT * FROM deliveries').first();
+    assert.equal(pending.state,'pending');assert.equal(pending.attempts,1);
+    assert.equal(pending.last_error,'callback_transient');
+    assert.ok(pending.next_at-deliveryAttempts[0].at>=59900);
+    assert.equal(pending.claim,null);assert.equal(pending.lease_until,null);
+    await runtime.dispose();
+    runtime=new Miniflare(options);
+    db=await runtime.getD1Database('DB');
+    const recovered=await db.prepare('SELECT * FROM deliveries').first();
+    assert.deepEqual(recovered,pending);
+    assert.equal((await db.prepare('SELECT count(*) n FROM subscriptions WHERE active=1').first()).n,1);
+    const early=await runtime.dispatchFetch('http://localhost/internal/deliver',{method:'POST',headers:{Authorization:`Bearer ${triggerSecret}`}});
+    assert.equal(early.status,200);assert.equal((await early.json()).processed,0);assert.equal(deliveryCalls,1);
+    console.log(JSON.stringify({stage:'pending_survived_worker_restart',retry_at:new Date(pending.next_at).toISOString(),scope:'local workerd; test harness supplies trigger, not hosted autonomous execution'}));
+    while(Date.now()<pending.next_at+100) await new Promise(resolve=>setTimeout(resolve,Math.min(30000,pending.next_at+100-Date.now())));
+    const retry=await runtime.dispatchFetch('http://localhost/internal/deliver',{method:'POST',headers:{Authorization:`Bearer ${triggerSecret}`}});
+    assert.equal(retry.status,200);assert.equal((await retry.json()).processed,1);assert.equal(deliveryCalls,2);
+    const [first,second]=deliveryAttempts;
+    assert.equal(second.body,first.body);assert.equal(second.id,first.id);
+    assert.ok(Number(second.timestamp)>Number(first.timestamp));assert.notEqual(second.signature,first.signature);
+    assert.ok(second.at-first.at>=60000);
+    assert.equal((await db.prepare('SELECT attempts FROM deliveries').first()).attempts,2);
+    console.log(JSON.stringify({stage:'delayed_retry_passed',elapsed_ms:second.at-first.at,worker_restarted:true,new_slack_events:0,hosted_autonomous_retry_proven:false}));
+  }
   assert.equal((await db.prepare("SELECT count(*) n FROM deliveries WHERE state='delivered'").first()).n,1);
   const {ttlMs,...stopParams}=eventParams;
   const stopped=await eventCall('events/unsubscribe',{...stopParams,delivery:{mode:'webhook',url:eventParams.delivery.url}});
   assert.equal(stopped.error,undefined);assert.ok(stopped.result);
   assert.equal((await db.prepare('SELECT count(*) n FROM subscriptions WHERE active=1').first()).n,0);
-  console.log(JSON.stringify({result:'PASS',checks:['bundled Worker health','owner authorization','D1 migration/readback','Bolt signed ingress','MCP SDK discovery','signed callback verification using default transport','signed outbox delivery using authenticated trigger','canonical unsubscribe'],ingress_ms:Math.round(performance.now()-start)}));
+  console.log(JSON.stringify({result:'PASS',recovery,checks:['bundled Worker health','owner authorization','D1 migration/readback','Bolt signed ingress','MCP SDK discovery','signed callback verification using default transport','signed outbox delivery using authenticated trigger','canonical unsubscribe'],scenario_ms:Math.round(performance.now()-start)}));
 } finally {await runtime.dispose();}

@@ -6,6 +6,8 @@ A TypeScript Slack bot integration for one controlling dot, deployed through Cha
 
 Use Node 22.13+ (the SQLite test harness requires Node 22.13+). Install with the supported Sites installer, or npm run install:ci from a clean lockfile checkout. Run npm run typecheck, npm test, npm run build, then node tests/compatibility/worker-smoke.mjs. The smoke harness uses Miniflare supplied by the locked Wrangler dependency. It runs the built bundle and the actual D1 migration. Tests use synthetic data only.
 
+Run `node tests/compatibility/worker-smoke.mjs --recovery` for the approximately one-minute recovery check. It injects one synthetic callback 503, restarts the Worker against the same local D1 store, rejects an early retry, then verifies delayed delivery with unchanged event bytes/ID and a fresh valid signature. The test harness supplies the retry trigger; this does not demonstrate autonomous hosted scheduling. It sends no real Slack or OpenAI requests.
+
 Use npm run dev for local preview. Local authentication helpers are a development convenience, not evidence of hosted identity security. Never expose a direct Worker origin that bypasses Sites dispatch. Local environment files and .dev.vars are ignored; .env.example documents names only.
 
 ## Site setup

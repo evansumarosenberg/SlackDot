@@ -1,6 +1,6 @@
 # SlackDot specification
 
-Status: full implementation target; prototype implemented and deployed, full feasibility unproven
+Status: full implementation target; hosted prototype core verified, autonomous delivery requires an unprovisioned auxiliary service
 Last updated: 2026-11-02  
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
 
@@ -389,11 +389,11 @@ Retention must be bounded and documented before production. A proposed starting 
 
 | Question | Current evidence | Required resolution |
 | --- | --- | --- |
-| Does Bolt run in the Sites Worker runtime? | Hosted auth.test, native reads/writes, and signed Slack callback handling pass on version 5. | Demonstrate durable acceptance and fanout of a non-self message in the live subscription test. |
-| Does the Site-created plugin support MCP Events? | Native discovery lists all three tools and `slack.message.created`; native owner tool calls pass. This local chat has no event-subscription operation. | Verify subscribe, signed callback verification, delivery, refresh, and unsubscribe through a supported Work web/Cloud chat or dot. |
-| Can delayed retries run using Sites alone? | The inspected Sites contract exposes D1/R2 but does not document queue/cron/alarm provisioning. | Prove a supported durable trigger, or record a required external dependency. |
+| Does Bolt run in the Sites Worker runtime? | Hosted auth.test, native reads/writes, and signed Slack ingress pass. Version 7 durably accepted a human marker in 184 ms and delivered it to the intended dot after a manual trigger. | Retain the verified receiver and transport; full load/performance testing is outside this prototype. |
+| Does the Site-created plugin support MCP Events? | Native discovery, subscribe, signed callback verification, and actual dot event receipt pass on version 7. The subscription survived redeployment. | Native refresh and active unsubscribe remain open; private-channel and DM native event smoke tests remain open. |
+| Can delayed retries run using Sites alone? | The inspected Sites contract has no documented queue/cron/alarm provisioning. A local built-Worker test persisted a failed delivery across runtime restart and retried successfully after 60.131 seconds through the authenticated runner. | An external durable scheduler is required by the currently inspected interface. The local harness supplies its own trigger and does not prove hosted autonomous recovery. Provisioning and validating the auxiliary service remain separate work. |
 | Is public hosting compatible with owner-only MCP access? | Native owner calls pass; hosted anonymous and forged-header probes are rejected. | Test a signed-in non-owner; retain the proven owner and ingress checks. |
-| Can callback egress checks be satisfied in Workers? | OpenAI requires HTTPS callback verification and safe destination handling. | Test the supported egress/allowlist strategy and redirect/private-destination rejection. |
+| Can callback egress checks be satisfied in Workers? | Exact-origin restriction is active for the independently checked OpenAI hostname; native challenge and delivery pass. Redirect/private-destination rejection is covered locally. | Retain exact-origin policy and independently verify any future destination changes; arbitrary destination DNS pinning is not claimed. |
 | Can this bot read channel threads? | Live public, private, and DM reads pass with the installed bot token after the user repaired scopes. Each returned a complete synthetic parent/reply thread. | Retain verified support; multi-page continuation and broader history coverage are not established by the two-message fixtures. |
 
 These are proof obligations, not permission to quietly narrow the target behavior. Unsupported capabilities must be reported with their practical effect and any proposed alternative.
