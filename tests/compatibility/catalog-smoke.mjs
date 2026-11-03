@@ -103,6 +103,6 @@ try {
   assert.deepEqual(statuses,['active','processing','active']);
   assert.equal(observed.length,5);assert.equal((await db.prepare('SELECT count(*) n FROM subscriptions').first()).n,0);
   const tables=(await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all()).results.map(r=>r.name);
-  assert.deepEqual(tables,['subscriptions']);
+  assert.deepEqual(tables,['subscriptions','event_dedup']);
   console.log(JSON.stringify({result:'PASS',tool_count:called.size,event_types:observed.map(e=>e.name),application_tables:tables,slack_methods:[...new Set(methods)]}));
 } finally {await runtime.dispose();}

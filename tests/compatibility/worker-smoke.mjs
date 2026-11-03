@@ -62,7 +62,7 @@ try {
     for(const sql of readFileSync(`drizzle/${file}`,'utf8').split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean)) await db.prepare(sql).run();
   // Assert the final migration's result; no payload/result tables are available to this Worker.
   const tables=(await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all()).results.map(r=>r.name);
-  assert.deepEqual(tables,['subscriptions']);
+  assert.deepEqual(tables,['subscriptions','event_dedup']);
   const setupHeaders={'oai-authenticated-user-email':'synthetic@example.com'};
   const outsider=await runtime.dispatchFetch('http://localhost/setup',{headers:{...setupHeaders,'oai-authenticated-user-id':'other'}});
   const outsiderHtml=await outsider.text();
@@ -109,9 +109,9 @@ try {
     for(const attempt of attempts) {assert.equal(attempt.raw,attempts[0].raw);assert.equal(attempt.headers['webhook-id'],attempts[0].headers['webhook-id']);}
     if(scenario==='retry') assert.notEqual(attempts[0].headers['webhook-signature'],attempts[1].headers['webhook-signature']);
     if(scenario==='duplicate') {
-      await ingress();await pause(300);assert.equal(callbackCalls,2);
-      assert.equal(statusCalls,2);
-      assert.equal(attempts[0].headers['webhook-id'],attempts[1].headers['webhook-id']);
+      await ingress();await pause(300);assert.equal(callbackCalls,1);
+      assert.equal(statusCalls,1);
+      assert.equal((await db.prepare("SELECT count(*) n FROM event_dedup WHERE state='delivered'").first()).n,1);
     }
     const before=callbackCalls;await ingress(true);await pause(100);assert.equal(callbackCalls,before);
     assert.ok(Date.now()-started<26000);

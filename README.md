@@ -35,4 +35,4 @@ To connect another workspace, repeat the setup with a separate Slack app, Site a
 
 ## Privacy and delivery
 
-SlackDot stores only the subscriptions needed to deliver events. It does not retain message content or delivery history in its database. Delivery retries are brief and best effort; interruptions can lose events, and duplicate delivery is possible. Slack and ChatGPT retain data according to their own settings.
+SlackDot stores subscriptions and small, opaque records that suppress repeat event delivery for three hours. Expired records are removed on subsequent activity; no message content or attempt history is retained. Delivery is best effort: interruptions can lose events, and ambiguous delivery or repeated tool calls can still produce duplicates. Slack and ChatGPT retain data according to their own settings.

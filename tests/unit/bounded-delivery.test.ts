@@ -8,6 +8,7 @@ import {CallbackClient} from '../../lib/events/callback';
 import {deliverEvent} from '../../lib/events/delivery';
 import {retryDelay} from '../../lib/events/budget';
 import {Failure} from '../../lib/runtime/config';
+import {CLAIM_MS,DEDUP_MS,deliveryKey} from '../../lib/events/dedup';
 
 async function fixture() {
   const {db,sqlite}=database(),e=env(db);let now=Date.now();const start=now;
@@ -40,7 +41,7 @@ it('signs with both keys during rotation and only the new key after overlap expi
   const first=f.calls[0],headers=first.headers as Record<string,string>;
   expect(headers['webhook-signature'].split(' ')).toHaveLength(2);
   new Webhook(secret).verify(first.body as string,headers);new Webhook(nextSecret).verify(first.body as string,headers);
-  f.advance(60001);await f.run(f.start+60002);
+  f.message.eventId+='-next';f.advance(60001);await f.run(f.start+60002);
   const next=f.calls[1],nextHeaders=next.headers as Record<string,string>;
   expect(nextHeaders['webhook-signature'].split(' ')).toHaveLength(1);
   new Webhook(nextSecret).verify(next.body as string,nextHeaders);
@@ -150,13 +151,17 @@ it('drops an expired invocation without replay while retaining its active subscr
   expect(f.notice).not.toHaveBeenCalled();expect(f.transport).not.toHaveBeenCalled();
   expect(f.sqlite.prepare('SELECT id FROM subscriptions').all()).toHaveLength(1);
 });
-it('does not retain recovery state if the invocation is interrupted',async()=>{
+it('retains only an opaque claim if the invocation is interrupted; fresh ingress can reclaim it',async()=>{
   const f=await fixture();f.transport.mockResolvedValue(new Response(null,{status:503}));
   f.deps.sleep.mockRejectedValue(new Error('simulated worker termination'));
   await expect(f.run()).rejects.toThrow('simulated worker termination');
   expect(f.transport).toHaveBeenCalledTimes(1);expect(f.notice).not.toHaveBeenCalled();
   // There is no stored event/job to resume; a later invocation needs a new ingress payload.
-  expect(f.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all()).toEqual([{name:'subscriptions'}]);
+  expect(f.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all()).toEqual([{name:'subscriptions'},{name:'event_dedup'}]);
+  expect(f.sqlite.prepare('SELECT state FROM event_dedup').get()).toEqual({state:'processing'});
+  await f.run();expect(f.transport).toHaveBeenCalledTimes(1);
+  f.advance(CLAIM_MS);f.transport.mockResolvedValue(new Response(null,{status:204}));
+  await f.run(f.start+CLAIM_MS);expect(f.transport).toHaveBeenCalledTimes(2);
 });
 it('ignores redundant app_mention notifications and derives mentions from canonical messages',async()=>{
   const f=await fixture();expect(normalize(event({type:'app_mention'}),f.e)).toBeNull();
@@ -313,4 +318,44 @@ it('does not invent a thread or mark edits as processing',async()=>{
   const edited=normalize(event({subtype:'message_changed',event_ts:'1793640010.123456',message:{user:'UPERSON',ts:'1793640000.123456',thread_ts:'1793640000.123456',text:'edited'}}),f.e)!;
   await deliverEvent(f.e,edited,f.start,f.deps);
   expect(f.transport).toHaveBeenCalledTimes(2);expect(f.deps.processing).not.toHaveBeenCalled();
+});
+it('suppresses simultaneous and completed redelivery without another status or failure notice',async()=>{
+  const f=await fixture();let release!:()=>void;
+  f.transport.mockImplementation(async()=>{await new Promise<void>(resolve=>{release=resolve;});return new Response(null,{status:204});});
+  const first=f.run();await vi.waitFor(()=>expect(f.transport).toHaveBeenCalledTimes(1));
+  await f.run();expect(f.transport).toHaveBeenCalledTimes(1);expect(f.notice).not.toHaveBeenCalled();
+  release();await first;f.advance(60000);await f.run(f.start+60000);
+  expect(f.transport).toHaveBeenCalledTimes(1);expect(f.deps.processing).toHaveBeenCalledTimes(1);
+  expect(f.notice).not.toHaveBeenCalled();
+});
+it('retries only failed destinations on later ingress, retaining each fixed expiration',async()=>{
+  const f=await fixture();
+  const second=await subscribe(f.e,'owner',{...subscription(),delivery:{...subscription().delivery,url:'https://receiver.example.com/second'}},access,f.verified,f.start-1);
+  f.transport.mockImplementation(async(url)=>new Response(null,{status:url.endsWith('/second')?410:204}));
+  await f.run();expect(f.transport).toHaveBeenCalledTimes(2);
+  await f.run();expect(f.transport).toHaveBeenCalledTimes(2);
+  f.advance(60000);f.transport.mockResolvedValue(new Response(null,{status:204}));await f.run(f.start+60000);
+  expect(f.transport).toHaveBeenCalledTimes(3);expect(f.notice).not.toHaveBeenCalled();
+  expect(f.sqlite.prepare('SELECT state,expires_at FROM event_dedup WHERE key=?').get(deliveryKey(f.e,f.message.eventId,second.id)))
+    .toEqual({state:'delivered',expires_at:f.start+DEDUP_MS});
+});
+it('allows delivery after record expiration and never deduplicates a distinct event',async()=>{
+  const f=await fixture();await f.run();f.advance(DEDUP_MS);await f.run(f.start+DEDUP_MS);
+  f.message.eventId+='-distinct';await f.run(f.start+DEDUP_MS);
+  expect(f.transport).toHaveBeenCalledTimes(3);
+});
+it('fails closed if claim storage is unavailable',async()=>{
+  const f=await fixture();f.sqlite.exec(`CREATE TRIGGER deny_claim BEFORE INSERT ON event_dedup BEGIN SELECT RAISE(FAIL,'storage unavailable'); END`);
+  await expect(f.run()).rejects.toThrow('storage unavailable');
+  expect(f.transport).not.toHaveBeenCalled();expect(f.notice).not.toHaveBeenCalled();
+});
+it('does not retry accepted callbacks or send a failure notice when completion storage fails',async()=>{
+  const f=await fixture();f.sqlite.exec(`CREATE TRIGGER deny_finish BEFORE UPDATE ON event_dedup BEGIN SELECT RAISE(FAIL,'storage unavailable'); END`);
+  await f.run();expect(f.transport).toHaveBeenCalledTimes(1);expect(f.notice).not.toHaveBeenCalled();
+  expect(f.sqlite.prepare('SELECT state FROM event_dedup').get()?.state).toBe('processing');
+});
+it('does not turn a successful response body cleanup error into a callback retry',async()=>{
+  const f=await fixture();f.transport.mockImplementation(async()=>new Response(new ReadableStream({cancel(){throw new Error('body cleanup failed');}}),{status:200}));
+  await f.run();expect(f.transport).toHaveBeenCalledTimes(1);
+  expect(f.sqlite.prepare('SELECT state FROM event_dedup').get()?.state).toBe('delivered');
 });

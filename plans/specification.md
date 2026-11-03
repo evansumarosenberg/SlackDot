@@ -1,6 +1,6 @@
 # SlackDot specification
 
-Status: the subscriptions-only runtime and full tool/event catalog passed live acceptance on version 13, including all 14 tools, all five event types and public/private/DM created-message round trips. The user has deleted all SlackDot subscriptions and the compatibility plugin in ChatGPT. The compatibility Site remains pending retirement; a fresh installation named SlackDot is deferred to a separate session, using the user-facing README. External schedulers/services are disallowed.
+Status: the earlier subscriptions-only runtime passed live acceptance, and the owner subsequently installed SlackDot successfully through ChatGPT Work. Automatic session status is live and visually confirmed. The November 3 approved follow-up adds only opaque, bounded event/subscription deduplication metadata as specified below. The owner confirmed Slack Delayed Events is disabled. External schedulers/services remain disallowed. Historical compatibility results below describe their tested versions, not evidence for the new deduplication implementation.
 Last updated: 2026-11-02  
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
 Next phase: [Full application implementation plan](implementation-plan.md)
@@ -23,12 +23,12 @@ This document records the full target behavior. It distinguishes that target fro
 6. Expand the originally requested OAuth scopes when needed for the agreed features.
 7. Deploy the entire application through ChatGPT Sites, using a public Site and server-side authorization for protected routes. External schedulers and separately hosted delivery infrastructure are explicitly disallowed.
 8. Prefer MCP 2.0 HTTP, protocol revision `2026-07-28`, and the webhook event profile documented by OpenAI.
-9. Store only subscriptions needed for current operation in D1. Keep event payloads, delivery attempts, notice outcomes and tool-write results in request memory only; no operational history or deduplication database.
+9. Store current subscriptions and minimal opaque event/subscription deduplication records in D1. Deduplication has a fixed three-hour window, 45-second processing claims and request-driven cleanup. Keep payloads, attempt histories, notice outcomes and tool-write results in request memory only.
 10. Start without protocol replay: return `cursor: null` and explicitly document that limitation.
 11. Validate the platform with a narrow prototype before implementing the full tool catalog.
-12. Use automatic delivery with bounded retries in the originating request's `waitUntil()` window. Stop on success, exhaustion or permanent failure; attempt one threaded failure notice per invocation when appropriate. Do not persist the outcome. Interruption can prevent both delivery and feedback, and cross-request duplicate suppression is not guaranteed.
+12. Use automatic delivery with bounded retries in the originating request's `waitUntil()` window. Stop on success, exhaustion or permanent failure; attempt one threaded failure notice per invocation when appropriate. Do not persist notice outcomes. Interruption can prevent both delivery and feedback, and bounded deduplication does not guarantee exactly-once delivery.
 13. Apply YAGNI: configuration and secrets are Sites environment settings; a minimal owner-only setup view is enough. Do not add a configuration GUI, diagnostics dashboard, audit history, maintenance framework, recovery service or speculative configuration options.
-14. The user explicitly accepts possible cross-request duplicate deliveries, notices and writes, and possible loss of both delivery and feedback on interruption, in exchange for subscriptions-only storage, simplicity and convenient Sites deployment. Do not reintroduce operational persistence to eliminate these accepted tradeoffs.
+14. The user authorizes only the bounded deduplication metadata described in section 11, superseding the earlier subscriptions-only restriction. Ambiguous callback acceptance, duplicate notices/writes and loss of delivery/feedback on interruption remain accepted limitations. No payload queue, recovery scheduler or write ledger is authorized.
 15. Retain `assistant:write` by explicit user choice for possible future investigation. Agent UI features remain outside this implementation task.
 
 ## 3. Scope
@@ -127,7 +127,7 @@ The published Slack app manifest must be checked against the actual granted toke
 flowchart LR
     Slack[Slack workspace] -->|Signed event POST| Ingress[Public Slack webhook]
     Ingress -->|Request memory and waitUntil| Delivery[Bounded event delivery]
-    DB[(D1 subscriptions only)] -->|Active subscriptions| Delivery
+    DB[(D1 subscriptions and opaque deduplication)] -->|Subscriptions and claims| Delivery
     Delivery -->|Signed MCP webhook| Dot[Controlling dot]
     Delivery -->|Failure notice if budget permits| Service
     Dot -->|Site plugin| MCP[Authenticated MCP endpoint]
@@ -158,15 +158,15 @@ Use `ctx.waitUntil()` to run delivery from the validated in-memory event while a
 
 Allow up to 20 seconds for subscription reads, authorization, callback calls and retry delays, then up to five seconds for best-effort threaded feedback, with safety margin before the platform's shared 30-second post-response window. Use the existing short backoff and actual network cancellation. All matching subscriptions share the same invocation budget with bounded concurrency. Start at most three callback attempts per matching subscription per invocation, and fewer when Retry-After or remaining time requires it. Keep constants in code; add environment knobs only for an established need.
 
-The window is an execution limit, not a promise that delivery or a notice succeeds. Runtime termination, network failure, unavailable subscriptions or failed Slack writes can prevent both. The Slack HTTP acknowledgment has already been sent; a later delivery error cannot replace it. Failure feedback is a separate best-effort Slack API call. No event state survives the invocation and no recovery or inspection service is provided.
+The window is an execution limit, not a promise that delivery or a notice succeeds. Runtime termination, network failure, unavailable subscriptions or failed Slack writes can prevent both. The Slack HTTP acknowledgment has already been sent; a later delivery error cannot replace it. Failure feedback is a separate best-effort Slack API call. Only opaque deduplication metadata survives the invocation; no payload, recovery service or inspection service is provided.
 
-A separate Slack redelivery is a separate invocation and may repeat delivery or feedback. Without shared receipts there is no reliable way to distinguish a lost acknowledgment from an event that never ran. Process verified redeliveries under the same bounded policy rather than dropping them solely because of the retry header. Retain stable logical event IDs so the recipient can recognize duplicates; do not claim recipient deduplication or exactly-once side effects.
+A separate Slack redelivery is a separate invocation. Atomically claim each matching event/subscription pair before callbacks. Suppress confirmed delivery for three hours and suppress overlapping attempts during a 45-second claim. Failed or abandoned attempts may be reclaimed by later ingress after that claim expires, without extending the record's original expiration. Process verified redeliveries under this policy rather than dropping them solely because of the retry header. Stable logical event IDs remain available to the recipient. A callback accepted without a received acknowledgment, or success followed by a failed database update, can still be delivered again; do not claim exactly-once side effects.
 
 ### Automatic session status
 
 For `slack.message.created` with a known thread root, the first confirmed subscriber delivery starts one best-effort `agents.sessions.setStatus` call with `processing`. Start it immediately without waiting for other fanout destinations; no status is set for unmatched, failed, or cancelled deliveries, or for edit/delete/reaction events. The call has a two-second maximum and shares the existing 25-second invocation deadline.
 
-After `slack_send_message` confirms a threaded reply, attempt `active` on that same thread. Reads, other tools, top-level posts, uncertain sends and internal delivery-failure notices do not change status. Status failures never change successful delivery/send outcomes, trigger retries, or delete subscriptions. Keep the existing 14 tools, scopes and subscriptions-only storage.
+After `slack_send_message` confirms a threaded reply, attempt `active` on that same thread. Reads, other tools, top-level posts, uncertain sends and internal delivery-failure notices do not change status. Status failures never change successful delivery/send outcomes, trigger retries, or delete subscriptions. Suppressed duplicate deliveries do not reset processing status. Keep the existing 14 tools and scopes; status writes add no storage.
 
 This is an approximate activity indicator, not run tracking. Overlapping events/replies and status failures are accepted limitations; do not add correlation records, locks or a cleanup scheduler. Slack documents a one-hour processing timeout in its [agent development guide](https://docs.slack.dev/ai/developing-agents/#ending-the-processing-state). Workspace support is required; unavailable features degrade to normal delivery/replies without the indicator.
 
@@ -338,7 +338,7 @@ Use a finite subscription lifetime with a 72-hour default. The current implement
 - Normalize in memory, register background work, and return the Slack acknowledgment within three seconds. Do not wait for callback completion. Reject invalid/unprocessable requests promptly.
 - Read and match active subscriptions by event name and declared filters. Do not write ingress receipts, normalized events, matching results or delivery jobs.
 - Use canonical message events for new-message delivery; compute mentions from the explicit bot-ID mention in message text. Do not build cross-notification enrichment or message caches.
-- Keep logical event IDs stable for the same occurrence; distinguish repeated edits and reaction changes. IDs do not constitute stored duplicate suppression.
+- Keep logical event IDs stable for the same occurrence; distinguish repeated edits and reaction changes. Hash the logical ID with the subscription identity for bounded duplicate suppression.
 - Exclude the app's own messages/actions and failure notices. Do not misclassify edits, deletions or thread summaries as new messages.
 - Missing author/thread metadata remains unknown. Unknown values do not satisfy corresponding filters. Use a bounded live read when necessary and possible, not cached history or inferred metadata.
 
@@ -346,10 +346,10 @@ Use a finite subscription lifetime with a 72-hour default. The current implement
 
 - Keep serialized payloads, attempt counts, deadlines and results in invocation-local memory only. Reuse identical payload bytes/event IDs across that invocation's retries, with fresh signing timestamps/signatures.
 - Recheck subscription existence, expiry and conversation access before sending. Stop when unsubscribe, expiration or revocation is observed. Delete a revoked subscription rather than keeping an inactive history row.
-- Callback `2xx` means success and ends attempts; it does not mean the dot has finished its work. On failure, honor bounded attempts, backoff, Retry-After and the shared deadline. No persisted claims, leases, retry queue or terminal state.
-- For this invocation, if at least one matching callback succeeds, suppress generic failure feedback. If all eligible attempts fail, attempt at most one notice in the known source thread. Unmatched events and intentional cancellations produce no notice. Never guess a thread for a deleted or unknown source.
+- Callback `2xx` means success and ends attempts; it does not mean the dot has finished its work. Record confirmed delivery outside the callback retry loop. A completion-record failure must not cause an immediate resend or failure notice. On callback failure, honor bounded attempts, backoff, Retry-After and the shared deadline. Persist only the minimal claims/state in section 11; no retry queue.
+- For this invocation, if at least one matching callback succeeds or is suppressed by deduplication, suppress generic failure feedback. Otherwise, if eligible attempts fail, attempt at most one notice in the known source thread. Unmatched events and intentional cancellations produce no notice. Never guess a thread for a deleted or unknown source.
 - Use the next five seconds for the notice, including authorization. Do not retry an ambiguous notice write, create a notice record, or claim notification without a successful response. Separate duplicate ingress can still produce duplicate notices.
-- Drop all event/write execution state when the request/background task completes or terminates. Do not add a cross-request memory cache, substitute durable object, external store, or log-based ledger.
+- Drop payloads and event/write execution details when the request/background task completes or terminates. Retain only the authorized deduplication metadata. Do not add a cross-request memory cache, substitute durable object, external store, or log-based ledger.
 
 For uncertain/exhausted delivery, use:
 
@@ -359,13 +359,17 @@ Omit “after several attempts” when only one attempt occurred. The wording mu
 
 ### History and replay
 
-No protocol replay (`cursor: null`). Read history and threads directly from Slack, with pagination and honest partial/unsupported results. Do not add a cached fallback or preserve copies for diagnostics. The bridge has no recovery state after interruption.
+No protocol replay (`cursor: null`). Read history and threads directly from Slack, with pagination and honest partial/unsupported results. Do not add a cached fallback or preserve copies for diagnostics. An expired claim permits a later ingress attempt but supplies no payload to replay and triggers no autonomous recovery.
 
-## 11. Subscriptions-only persistence and secrets
+## 11. Minimal persistence and secrets
 
-D1 stores only current subscription data needed to deliver: deterministic identity, owner, event/filter arguments, callback destination, encrypted signing material, granted expiration and necessary verification metadata. Keep only necessary indexes/uniqueness constraints. Configuration and secrets live in Sites environment settings, not a configuration table or GUI. Platform migration bookkeeping is separate from application data.
+D1 stores current subscription data needed to deliver: deterministic identity, owner, event/filter arguments, callback destination, encrypted signing material, granted expiration and necessary verification metadata. A separate `event_dedup` table contains only `key`, `state`, `claim_token`, `claim_expires_at` and `expires_at`. Keep only necessary indexes/uniqueness constraints. Configuration and secrets live in Sites environment settings, not a configuration table or GUI. Platform migration bookkeeping is separate from application data.
 
-Do not store message/event bodies, ingress receipts, event IDs for deduplication, delivery outcomes, attempt logs, notice records, tool-write request hashes/results, user profiles, cached history or audit records. No retention period is authorized for those data. Do not relocate them to R2, KV, external storage, logs, test artifacts or global caches. Temporary request memory is allowed for processing and ends with the invocation.
+The deduplication key is a domain-separated HMAC-SHA-256 of the event/subscription pair using the existing stable subscription-encryption key. Do not store either identifier separately in this table. States are `processing`, `delivered` and `failed`; claims use random tokens to fence stale completions. Atomic insert/reclaim admits one worker per pair. Claims last 45 seconds, and completion updates require an unexpired matching token. Failed attempts retain the original claim cooldown before another ingress may try. Confirmed delivery suppresses further attempts until the record expires three hours after its first claim; retries and duplicate requests never extend this timestamp. After expiry, a fresh ingress can begin a new window. Claim storage failure prevents uncoordinated delivery. Reusing the encryption key adds no secret/configuration setting; rotating it also changes deduplication identities and must not be treated as preserving the current window.
+
+Slack Delayed Events is disabled, as confirmed by the owner. The three-hour policy covers the normal retry horizon with margin; optional 24-hour delayed retries are outside this policy. Reclaims require at least 45 seconds remaining in the record's window so a live attempt cannot overlap a new window when cleanup removes its record. Cleanup deletes at most 100 expired records per ordinary subscription/event operation using an expiry index. Expiry is enforced even if cleanup has not deleted the row. An idle Site may retain expired rows until subsequent activity; no scheduler or exact-time physical deletion is promised. Opaque records may remain until expiry after their subscription is removed because they intentionally contain no reverse subscription reference.
+
+Do not store message/event bodies, raw ingress identifiers, attempt logs, notice records, tool-write request hashes/results, user profiles, cached history or audit records. Only the bounded deduplication metadata above is authorized in addition to subscriptions. Do not relocate prohibited data to R2, KV, external storage, logs, test artifacts or global caches. Temporary request memory is allowed for processing and ends with the invocation.
 
 Delete subscription records when unsubscribed/revoked and remove expired rows on normal activity; no stale-record history, grace period for expired subscriptions, or cleanup state table. Only signing-key material actually needed during an active subscription's bounded rotation overlap may remain within that subscription. Document invocation-driven physical deletion honestly; expiry takes effect without waiting for deletion.
 
@@ -397,10 +401,10 @@ These are proof obligations, not permission to quietly narrow the target behavio
 ## 14. Full implementation acceptance criteria
 
 - Sites deployment, public signed ingress, owner-only tools/subscriptions and non-owner rejection work without external infrastructure.
-- Only current subscriptions exist as application data in D1. No operational payloads, receipts, delivery/notice/write records or caches are created by success, failure, retries or tool calls; superseded tables/data are removed.
+- Only current subscriptions and the five-column opaque deduplication table exist as application data in D1. No operational payloads, raw receipts, attempt histories, notice/write records or caches are created; superseded tables/data remain removed.
 - Expired subscriptions cannot deliver; unsubscribe/revocation deletes the row; opportunistic expiry deletion preserves valid subscriptions. The default lifetime is 72 hours, with documented automatic ChatGPT renewal and no required live renewal experiment.
 - Conversation/user discovery, DM opening, history, threads, messaging, bot-only modifications and reactions meet the tool contract with bounded pagination and honest limitations.
-- Valid events trigger automatic in-memory delivery after prompt acknowledgment. Matching excludes self activity and redundant app-mention fanout; stable IDs are provided, but cross-request delivery/write/notice deduplication is not promised.
+- Valid events trigger automatic in-memory delivery after prompt acknowledgment. Matching excludes self activity and redundant app-mention fanout. Test simultaneous claims, successful-redelivery suppression, failed/abandoned claim recovery on fresh ingress, stale-token fencing, fixed expiry, bounded cleanup, independent fanout and storage failures. Exactly-once callbacks and write/notice deduplication are not promised.
 - Short retries, per-invocation attempt/time bounds, Retry-After, cancellation and best-effort feedback work without persisted jobs or a manual trigger. Successful callbacks do not produce failure notices while the dot runs.
 - Termination loses invocation state and may prevent both delivery and feedback. No replay, later recovery, inspection of lost state or guaranteed error response is claimed.
 - Uncertain Slack writes are not automatically resent or stored. MCP metadata and tool descriptions no longer promise stored-result replay or idempotent message creation.

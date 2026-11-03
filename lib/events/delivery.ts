@@ -5,6 +5,7 @@ import { SlackService } from '../slack/service';
 import { setSessionStatus } from '../slack/session-status';
 import { matchesEvent, timestamp, type SlackEvent } from '../slack/normalize';
 import { CallbackClient } from './callback';
+import { claimDelivery, finishDelivery, ownsClaim, type Claim } from './dedup';
 import { DELIVERY_MS, NOTICE_MS, MAX_ATTEMPTS, MIN_ATTEMPT_MS, SLACK_CALL_MS, retryDelay } from './budget';
 
 export interface DeliveryDependencies {
@@ -16,12 +17,12 @@ export interface DeliveryDependencies {
   clock?: ()=>number;
   sleep?: (ms:number)=>Promise<void>;
 }
-interface Outcome { id:string; state:'delivered'|'failed'|'cancelled'; attempts:number }
+interface Outcome { id:string; state:'delivered'|'failed'|'cancelled'|'suppressed'; attempts:number }
 const revoked = ['installation_revoked','installation_mismatch','conversation_unavailable','not_found','not_in_conversation','missing_scope'];
 const category = (e:unknown) => e instanceof Failure ? e.category : 'delivery_failed';
 
-// Payloads, attempts and outcomes belong only to this invocation. A separate Slack
-// redelivery can run again; stable event IDs do not provide duplicate suppression.
+// Payloads and attempts remain invocation-local. Only opaque deduplication keys,
+// delivery state and bounded claims survive a request; there is no replay queue.
 export async function deliverEvent(env:Env,event:SlackEvent,acceptedAt:number,deps:DeliveryDependencies={}) {
   if(env.SITES_IDENTITY_VERIFIED!=='true' || !env.OWNER_USER_ID) throw new Failure('identity_boundary_unverified');
   const clock=deps.clock??Date.now, sleep=deps.sleep??(ms=>new Promise(resolve=>setTimeout(resolve,ms)));
@@ -54,13 +55,14 @@ export async function deliverEvent(env:Env,event:SlackEvent,acceptedAt:number,de
   const outcomes:Outcome[]=[];
   let processing:Promise<void>|undefined;
 
-  async function run(id:string):Promise<Outcome> {
+  async function run(id:string,claim:Claim):Promise<Outcome> {
     let attempts=0;
     const result=(state:Outcome['state']):Outcome=>({id,state,attempts});
     while(true) {
       let sub=await current(id);
       if(!active(sub)) return result('cancelled');
       if(clock()+MIN_ATTEMPT_MS>=deadline || attempts>=MAX_ATTEMPTS) return result('failed');
+      if(!await ownsClaim(env,claim,clock())) return result('suppressed');
       attempts++;
       let requestedDelay=0;
       try {
@@ -71,11 +73,13 @@ export async function deliverEvent(env:Env,event:SlackEvent,acceptedAt:number,de
         const previousSecret=sub!.previous_secret && (sub!.previous_secret_expires_at??0)>clock()
           ? await decrypt(sub!.previous_secret,env.SUBSCRIPTION_ENCRYPTION_KEY,sub!.id) : undefined;
         if(clock()>=deadline) throw new Failure('execution_deadline');
+        if(!await ownsClaim(env,claim,clock())) return result('suppressed');
         const response=await callbacks.post(sub!.callback,secret,sub!.id,event.eventId,payload,clock(),deadline,
           (sub!.previous_secret_expires_at??0)>clock()?previousSecret:undefined);
         requestedDelay=retryDelay(response.headers.get('retry-after'),clock());
         const status=response.status;
-        await response.body?.cancel();
+        // A body cleanup failure must not turn confirmed acceptance into a retry.
+        try { await response.body?.cancel(); } catch { /* Status is already known. */ }
         if(response.ok) {
           if(!processing && event.name==='slack.message.created' && timestamp.safeParse(event.data.thread_ts).success && clock()<noticeDeadline) {
             const update=deps.processing??((conversation,thread,end)=>setSessionStatus(env,conversation,thread,'processing',end));
@@ -105,14 +109,27 @@ export async function deliverEvent(env:Env,event:SlackEvent,acceptedAt:number,de
     }
   }
   async function worker() {
-    while(index<rows.results.length) outcomes.push(await run(rows.results[index++].id));
+    while(index<rows.results.length) {
+      const id=rows.results[index++].id;
+      if(!active(await current(id))) {outcomes.push({id,state:'cancelled',attempts:0});continue;}
+      if(clock()+MIN_ATTEMPT_MS>=deadline) {outcomes.push({id,state:'failed',attempts:0});continue;}
+      // Fail closed on claim/storage errors: do not send an uncoordinated callback.
+      const claim=await claimDelivery(env,event.eventId,id,clock());
+      if(!claim) {outcomes.push({id,state:'suppressed',attempts:0});continue;}
+      const outcome=await run(id,claim);
+      outcomes.push(outcome);
+      // Keep this outside the callback retry loop. A failed success-record write
+      // leaves an expiring claim, never an immediate duplicate callback.
+      try {await finishDelivery(env,claim,outcome.state==='delivered'?'delivered':'failed',clock());}
+      catch { /* A later ingress may reclaim; callback acceptance remains true. */ }
+    }
   }
   // All callbacks share one deadline and at most four run concurrently. A storage
   // failure loses this invocation; there is deliberately no later recovery job.
   await Promise.all(Array.from({length:Math.min(4,rows.results.length)},worker));
   await processing;
   const processed=outcomes.length;
-  if(clock()>=noticeDeadline || outcomes.some(result=>result.state==='delivered')) return {processed};
+  if(clock()>=noticeDeadline || outcomes.some(result=>result.state==='delivered'||result.state==='suppressed')) return {processed};
   const thread=event.data.thread_ts;
   // A deleted target or unknown thread is not a safe place for feedback. Never
   // infer a root from a reaction's message timestamp or retain lookup history.

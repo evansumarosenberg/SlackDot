@@ -21,7 +21,7 @@ export default async function Setup() {
     {authorized && <><h2>Configuration</h2><ul>
       {(['SLACK_BOT_TOKEN','SLACK_SIGNING_SECRET','SLACK_TEAM_ID','SLACK_BOT_USER_ID','SLACK_BOT_ID','SLACK_APP_ID','SUBSCRIPTION_ENCRYPTION_KEY','CALLBACK_ALLOWED_ORIGINS','DB'] as const)
         .map(key=><li key={key}>{key}: {runtime[key]?'configured':'missing'}</li>)}
-    </ul><p>Change configuration and secrets in the Site environment settings. SlackDot stores only subscriptions; message content and delivery results are not saved.</p></>}
+    </ul><p>Change configuration and secrets in the Site environment settings. SlackDot stores subscriptions and short-lived, opaque deduplication records. Message content is not saved.</p></>}
     {connection && <><h2>Slack connection</h2><pre>{JSON.stringify(connection,null,2)}</pre></>}
   </main>;
 }

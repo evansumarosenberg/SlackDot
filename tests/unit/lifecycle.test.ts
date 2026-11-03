@@ -23,7 +23,7 @@ describe('subscription lifecycle',()=>{
     const expires=1000+granted!;
     expect(result.refreshBefore).toBe(new Date(expires).toISOString());
     expect(sqlite.prepare('SELECT expires_at FROM subscriptions').get()?.expires_at).toBe(expires);
-    expect(queries.every(query=>query.includes('subscriptions'))).toBe(true);
+    expect(queries.every(query=>query.includes('subscriptions')||query.includes('event_dedup'))).toBe(true);
   });
   it('deletes canonical subscription identity without affecting another owner or filter',async()=>{
     const {db,sqlite}=database(),e=env(db),args={conversation_id:'CTEST',thread_ts:'1793640000.123456'};
@@ -139,8 +139,8 @@ describe('subscription lifecycle',()=>{
   });
   it('guards the application DB interface against operational queries',()=>{
     const {db}=database();
-    expect(()=>db.prepare('SELECT * FROM events')).toThrow('subscriptions only');
-    expect(()=>db.prepare('SELECT * FROM subscriptions JOIN writes')).toThrow('subscriptions only');
+    expect(()=>db.prepare('SELECT * FROM events')).toThrow('subscriptions or opaque dedup state only');
+    expect(()=>db.prepare('SELECT * FROM subscriptions JOIN writes')).toThrow('subscriptions or opaque dedup state only');
   });
 });
 describe('security boundaries',()=>{

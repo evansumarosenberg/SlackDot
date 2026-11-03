@@ -6,10 +6,10 @@ export function database() {
   for (const file of readdirSync('drizzle').filter(f=>f.endsWith('.sql')).sort()) sqlite.exec(readFileSync(`drizzle/${file}`,'utf8'));
   const queries:string[]=[];
   function prepare(sql:string,values:unknown[]=[]): any {
-    // Runtime tests must fail if application code resumes operational persistence.
+    // Permit only subscriptions and the explicitly authorized opaque dedup state.
     // Record SQL shape only; never keep event, secret or request argument values.
-    if(!/\bsubscriptions\b/i.test(sql) || /\b(receipts|events|deliveries|delivery_notices|writes)\b/i.test(sql)) {
-      throw new Error('Application database access must use subscriptions only');
+    if(!/\b(subscriptions|event_dedup)\b/i.test(sql) || /\b(receipts|events|deliveries|delivery_notices|writes)\b/i.test(sql)) {
+      throw new Error('Application database access must use subscriptions or opaque dedup state only');
     }
     queries.push(sql);
     return {bind:(...args:unknown[])=>prepare(sql,args),

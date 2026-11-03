@@ -7,6 +7,7 @@ export interface Subscription {
 // Opportunistic and bounded: expiry is always enforced on reads, even when cleanup
 // has more stale rows to remove or there has been no traffic since expiration.
 export async function cleanup(env: Env, now: number) {
+  await env.DB.prepare('DELETE FROM event_dedup WHERE key IN (SELECT key FROM event_dedup WHERE expires_at<=? ORDER BY expires_at LIMIT 100)').bind(now).run();
   await env.DB.prepare('DELETE FROM subscriptions WHERE id IN (SELECT id FROM subscriptions WHERE expires_at<=? OR active=0 LIMIT 100)').bind(now).run();
   await env.DB.prepare(`UPDATE subscriptions SET previous_secret=NULL,previous_secret_expires_at=NULL WHERE id IN
     (SELECT id FROM subscriptions WHERE previous_secret IS NOT NULL AND (previous_secret_expires_at IS NULL OR previous_secret_expires_at<=?) LIMIT 100)`).bind(now).run();
