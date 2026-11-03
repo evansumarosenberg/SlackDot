@@ -15,6 +15,13 @@
       "when": 1793661711443,
       "tag": "0001_sweet_jack_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793672343443,
+      "tag": "0002_black_cammi",
+      "breakpoints": true
     }
   ]
 }

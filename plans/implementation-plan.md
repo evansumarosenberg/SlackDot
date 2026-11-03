@@ -1,6 +1,6 @@
 # SlackDot implementation plan
 
-Status: revised for the user's subscriptions-only and YAGNI requirements; runtime simplification is not yet implemented.
+Status: Step 1 runtime simplification implemented and locally verified; hosted migration and native round-trip acceptance are in progress. Steps 2–4 remain subsequent work.
 Target: [specification](specification.md)
 Historical evidence: [compatibility results](compatibility-prototype-results.md)
 
@@ -10,7 +10,7 @@ Build a lightweight Slack-to-Dot bridge on the existing ChatGPT Site. Keep one w
 
 The user explicitly accepts possible cross-request duplicate deliveries/notices/writes and interruption that prevents both delivery and feedback. These are accepted simplicity and deployment tradeoffs, not gaps to solve with additional storage or infrastructure.
 
-Deployed version 10 (`e9f7587`) has a 72-hour subscription default but still stores operational events, receipts, deliveries, notices and write results. The previous prototype proved the integration with that implementation; it did not prove the subscriptions-only replacement. Removing those tables and their writers is the first task, before adding product features. No additional retention or diagnostics system is authorized.
+Version 11 (`05e487b`) successfully deployed the table-independent Worker with environment revision 12; the obsolete delivery secret was removed. The forward migration is the second publication because Sites applies migrations before Worker upload. Local verification: 69 tests, TypeScript checks and Sites build pass; ten built-Worker scenarios cover subscriptions-only storage, bounded delivery, duplication, interruption and setup authorization. Hosted schema and public/private/DM acceptance are pending. No additional retention or diagnostics system is authorized.
 
 ## 2. Implementation sequence
 
@@ -108,3 +108,4 @@ Retain `assistant:write` by explicit user choice. Simple Agent UI features may b
 
 - [Slack event acknowledgment and retries](https://docs.slack.dev/apis/events-api/#responding-to-events): acknowledgment is required within three seconds; retries can occur in later requests.
 - [Workers execution context](https://developers.cloudflare.com/workers/runtime-apis/context/#waituntil): background tasks share a bounded post-response window and unfinished work can be cancelled.
+

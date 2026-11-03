@@ -1,6 +1,6 @@
 # SlackDot specification
 
-Status: revised to a subscriptions-only, request-scoped bridge. The deployed prototype still has the superseded operational storage; removing it is the first implementation task. Existing integration evidence remains historical, not verification of this revision. External schedulers/services are disallowed.
+Status: the subscriptions-only, request-scoped runtime is implemented. The forward removal migration and hosted acceptance are being completed under implementation Step 1; see the implementation plan for current evidence. Historical integration evidence does not by itself verify this revision. External schedulers/services are disallowed.
 Last updated: 2026-11-02  
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
 Next phase: [Full application implementation plan](implementation-plan.md)
@@ -413,4 +413,5 @@ Research was conducted on 2026-11-02. Recheck these sources during implementatio
 - [Conversation discovery](https://docs.slack.dev/reference/methods/conversations.list/), [history](https://docs.slack.dev/reference/methods/conversations.history/), and [current thread reference](https://docs.slack.dev/reference/methods/conversations.replies/). The [older thread reference](https://api.slack.com/methods/conversations.replies) documents the conflicting bot-token limitation.
 - [Slack message posting](https://docs.slack.dev/reference/methods/chat.postMessage/) and [rate-limit clarification](https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps/).
 - [Cloudflare execution context](https://developers.cloudflare.com/workers/runtime-apis/context/): shared `waitUntil()` lifetime and cancellation limits for the accepted bounded execution design.
+
 

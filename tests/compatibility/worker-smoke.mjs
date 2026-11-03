@@ -57,6 +57,14 @@ try {
   // Assert the final migration's result; no payload/result tables are available to this Worker.
   const tables=(await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all()).results.map(r=>r.name);
   assert.deepEqual(tables,['subscriptions']);
+  const setupHeaders={'oai-authenticated-user-email':'synthetic@example.com'};
+  const outsider=await runtime.dispatchFetch('http://localhost/setup',{headers:{...setupHeaders,'oai-authenticated-user-id':'other'}});
+  const outsiderHtml=await outsider.text();
+  assert.ok(!outsiderHtml.includes('SLACK_BOT_TOKEN') && !outsiderHtml.includes('TTEST'));
+  const ownerSetup=await runtime.dispatchFetch('http://localhost/setup',{headers:{...setupHeaders,'oai-authenticated-user-id':'owner'}});
+  const ownerHtml=await ownerSetup.text();
+  assert.ok(ownerHtml.includes('SLACK_BOT_TOKEN') && ownerHtml.includes('TTEST'));
+  assert.ok(!ownerHtml.includes('synthetic-token') && !ownerHtml.includes('synthetic-signing-secret'));
   async function rpc(method,params) {
     const response=await runtime.dispatchFetch('http://localhost/mcp',{method:'POST',headers:{...fixture.headers,'Mcp-Method':method,'Mcp-Name':params.name??'','oai-authenticated-user-id':'owner'},
       body:JSON.stringify({...fixture.request,method,params:{...fixture.request.params,...params}})});

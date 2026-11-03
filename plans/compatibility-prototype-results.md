@@ -4,7 +4,7 @@ Evaluation date: 2026-11-02. Status: compatibility feasibility gate passed under
 
 ## Current storage correction
 
-The user rejected operational retention and the unrequested diagnostics/maintenance scope. The current specification permits only subscriptions in D1, with events, attempts and write results confined to request memory. The following prototype results describe the older stored-event/outbox implementation and do not validate the replacement. Deployed version 10 still writes those records as of this documentation update; no runtime migration or data deletion occurred in this update. Removing its operational tables/writers is the first task in [the revised implementation plan](implementation-plan.md).
+The user rejected operational retention and the unrequested diagnostics/maintenance scope. The current specification permits only subscriptions in D1, with events, attempts and write results confined to request memory. The following prototype results describe the older stored-event/outbox implementation and do not validate the replacement. The replacement is now implemented and locally verified (69 tests, type checking, Sites build and ten synthetic built-Worker scenarios). Version 11 (`05e487b`) deployed the table-independent runtime; the forward removal migration and native round-trip check follow under [implementation Step 1](implementation-plan.md). This interim checkpoint does not yet claim hosted data deletion or native acceptance.
 
 This supersedes the earlier transition advice to retain the delivery/write ledgers or add retention monitoring, maintenance infrastructure and reconciliation diagnostics. Historical test observations and tags remain historical evidence, not authorization to retain operational data going forward.
 
@@ -320,3 +320,4 @@ Plan subsequent product work in this order, against the full specification rathe
 - [Slack custom receivers](https://docs.slack.dev/tools/bolt-js/concepts/receiver/)
 - [Workers Request / resolveOverride](https://developers.cloudflare.com/workers/runtime-apis/request/)
 - Installed Sites 1.1.2 skill: MCP server, identity/secrets, storage and publishing references.
+
