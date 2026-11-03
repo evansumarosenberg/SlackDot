@@ -1,6 +1,6 @@
 # SlackDot implementation plan
 
-Status: Steps 1–3 are implemented and deployed on version 13. Step 1 hosted acceptance passed. The expanded catalog is locally verified; live checks of the new tools/events remain in progress. Step 4 documentation is updated; final acceptance awaits those checks.
+Status: Steps 1–3 are implemented and deployed on version 13. Steps 1–2 hosted acceptance passed, including all 14 tools. The five-event catalog is locally verified; live checks of edit/delete/reaction events remain. Step 4 documentation is updated; final acceptance awaits those event checks.
 Target: [specification](specification.md)
 Historical evidence: [compatibility results](compatibility-prototype-results.md)
 
@@ -16,7 +16,13 @@ Version 11 (`05e487b`) deployed the table-independent Worker with environment re
 
 The expanded implementation passes 165 unit/protocol tests, TypeScript checking and the Sites build. The built catalog smoke exercises all 14 tools and five event types with synthetic outbound services and only the subscriptions table. All ten bounded-delivery Worker scenarios passed: success, transient retry, exhaustion, permanent failure, long Retry-After, failed notice, timeout, interruption, fanout and duplicate ingress. Final local acknowledgments were 6–9 ms; timeout exhaustion completed in about 15.5 seconds. These are synthetic local timings, not hosted latency measurements. Review fixes cover subscription recreation races, malformed Slack responses, root-edit/reaction thread resolution, self exclusion with unknown authorship, and the protocol-required 60-second signing-key overlap. The additive key fields remain part of active subscriptions, not operational history. No live renewal experiment was added. The user confirmed Slack's reaction bot-event settings are saved.
 
-Version 13 deployed source `0356845bc09dd62a843af8ef6894db511cb3cce5` via deployment `appgdep_6ae94a412fc88191aaa02e18edd9eec2` (environment revision 12), succeeded 2026-11-03 02:43:23 UTC. Native owner identity/capability calls report all five event types. Live schema inspection still shows only `subscriptions`. Anonymous/forged MCP probes return 401 and forged setup identity is not reflected. The current chat's connector catalog still exposes the original three tools, so the new-tool native smoke is delegated to Dot through the user. No extra plugin was created.
+Version 13 deployed source `0356845bc09dd62a843af8ef6894db511cb3cce5` via deployment `appgdep_6ae94a412fc88191aaa02e18edd9eec2` (environment revision 12), succeeded 2026-11-03 02:43:23 UTC. Native owner identity/capability calls report all five event types. Live schema inspection still shows only `subscriptions`. Anonymous/forged MCP probes return 401 and forged setup identity is not reflected. Dot completed the native smoke of all 14 tools, and the user visually verified the write/reaction/delete sequence. No extra plugin was created.
+
+### Live tool acceptance — November 2, 2026
+
+All 14 tools passed through Dot on version 13. Identity matched the configured workspace and both bot IDs. Bounded conversation discovery correctly returned an empty filtered page with a continuation cursor; user discovery returned 10 profiles with continuation. Conversation/user detail, existing-DM retrieval (without a greeting), and public history passed. Synthetic bot fixture `1793674329.662129` passed send, thread read, update/readback, reaction add/read, reaction remove/readback, and deletion with exact-timestamp absence check. Cleanup is complete. The user independently and authoritatively verified the message and reaction sequence in Slack. Existing automations, human messages and previous test threads were unchanged. No further verification of these tool results is required.
+
+Remaining live event acceptance: message updates, message deletions, reaction additions and reaction removals. Use one new human-authored synthetic fixture, temporary native subscriptions with private ChatGPT notifications only, then pause/remove only those temporary subscriptions. Preserve the three existing conversation subscriptions and the previously paused automation. Do not use bot-authored edits/deletions as event fixtures: self activity is intentionally excluded.
 
 ## 2. Implementation sequence
 

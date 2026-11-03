@@ -1,6 +1,6 @@
 # SlackDot specification
 
-Status: the subscriptions-only runtime and full tool/event catalog are deployed on version 13. The forward removal migration and public/private/DM hosted acceptance passed; expanded-tool/event live acceptance is tracked in the implementation plan. Historical integration evidence does not by itself verify this revision. External schedulers/services are disallowed.
+Status: the subscriptions-only runtime and full tool/event catalog are deployed on version 13. The forward removal migration and public/private/DM hosted acceptance passed; all 14 tools also passed live acceptance. Remaining edit/delete/reaction event checks are tracked in the implementation plan. Historical integration evidence does not by itself verify this revision. External schedulers/services are disallowed.
 Last updated: 2026-11-02  
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
 Next phase: [Full application implementation plan](implementation-plan.md)
