@@ -26,8 +26,6 @@ const runtime=new Miniflare({modules:modules.map(file=>({type:'ESModule',path:re
     }
     assert.equal(url.origin,'https://slack.com');const method=url.pathname.split('/').pop();methods.push(method);
     const body=request.headers.get('content-type')?.includes('json')?JSON.parse(raw):Object.fromEntries(new URLSearchParams(raw));
-    // The Slack SDK JSON-encodes array fields inside form-encoded requests.
-    for(const key of ['loading_messages','prompts'])if(typeof body[key]==='string')body[key]=JSON.parse(body[key]);
     switch(method) {
       case 'auth.test': return Response.json({ok:true,team_id:'TTEST',user_id:'UBOT',bot_id:'BBOT'});
       case 'conversations.info': return Response.json({ok:true,channel:{id:body.channel,is_member:true,is_im:body.channel==='DTEST',user:body.channel==='DTEST'?'UPERSON':undefined,name:'synthetic'}});
@@ -43,9 +41,6 @@ const runtime=new Miniflare({modules:modules.map(file=>({type:'ESModule',path:re
       case 'reactions.get': return Response.json({ok:true,type:'message',channel:'CTEST',message:{...(body.timestamp===reply?own:human),reactions:reaction?[{name:'eyes',count:1,users:['UBOT']}]:[]}});
       case 'reactions.add': if(reaction)return Response.json({ok:false,error:'already_reacted'});reaction=true;return Response.json({ok:true});
       case 'reactions.remove': if(!reaction)return Response.json({ok:false,error:'no_reaction'});reaction=false;return Response.json({ok:true});
-      case 'assistant.threads.setStatus': assert.equal(body.channel_id,'DTEST');assert.equal(body.thread_ts,parent);assert.equal(body.status,'is thinking...');assert.deepEqual(body.loading_messages,['Working']);return Response.json({ok:true});
-      case 'assistant.threads.setTitle': assert.equal(body.channel_id,'DTEST');assert.equal(body.thread_ts,parent);assert.equal(body.title,'Synthetic title');return Response.json({ok:true});
-      case 'assistant.threads.setSuggestedPrompts': assert.equal(body.channel_id,'DTEST');assert.equal(body.thread_ts,undefined);assert.equal(body.title,'Next steps');assert.deepEqual(body.prompts,[{title:'Summarize',message:'Summarize this conversation.'}]);return Response.json({ok:true});
       default: throw new Error(`Unexpected synthetic method: ${method}`);
     }
   }});
@@ -58,7 +53,7 @@ try {
   }
   const called=new Set();
   async function call(name,args={}) {called.add(name);const result=await rpc('tools/call',{name,arguments:args});assert.ok(!result.isError,JSON.stringify(result));assert.ok(!JSON.stringify(result).includes('must-not-escape'));return result.structuredContent;}
-  const catalog=await rpc('tools/list');assert.equal(catalog.tools.length,17);
+  const catalog=await rpc('tools/list');assert.equal(catalog.tools.length,14);
   const events=await rpc('events/list');assert.equal(events.events.length,5);
   assert.equal((await call('slack_get_connection_info')).event_types.length,5);
   const channels=await call('slack_list_conversations');assert.deepEqual(channels.conversations.map(c=>c.conversation_id),['CTEST']);assert.equal(channels.next_cursor,'next-page');
@@ -74,9 +69,6 @@ try {
   assert.equal((await call('slack_add_reaction',reactionTarget)).changed,true);assert.equal((await call('slack_add_reaction',reactionTarget)).changed,false);
   assert.equal((await call('slack_get_reactions',target)).reactions[0].bot_reacted,true);
   assert.equal((await call('slack_remove_reaction',reactionTarget)).changed,true);assert.equal((await call('slack_remove_reaction',reactionTarget)).changed,false);
-  assert.deepEqual(await call('slack_set_assistant_status',{conversation_id:'DTEST',thread_ts:parent,status:'is thinking...',loading_messages:['Working']}),{conversation_id:'DTEST',thread_ts:parent,ok:true});
-  await call('slack_set_assistant_title',{conversation_id:'DTEST',thread_ts:parent,title:'Synthetic title'});
-  assert.deepEqual(await call('slack_set_assistant_suggested_prompts',{conversation_id:'DTEST',title:'Next steps',prompts:[{title:'Summarize',message:'Summarize this conversation.'}]}),{conversation_id:'DTEST',thread_ts:null,ok:true});
   const inputs=[
     ['slack.message.created',{conversation_id:'CTEST',sender_user_ids:['UPERSON'],mentions_only:true},{type:'message',channel:'CTEST',user:'UPERSON',ts:parent,text:'<@UBOT> synthetic'}],
     ['slack.message.updated',{conversation_id:'CTEST',thread_ts:parent},{type:'message',subtype:'message_changed',hidden:true,channel:'CTEST',event_ts:'1793640002.000001',message:{...human,thread_ts:parent,text:'edited',edited:{user:'UPERSON',ts:'1793640002.000001'}}}],
@@ -96,7 +88,7 @@ try {
     if(name.startsWith('slack.reaction'))assert.equal(observed.at(-1).data.thread_ts,parent);
     await rpc('events/unsubscribe',{id:sub.id});
   }
-  await call('slack_delete_message',target);assert.equal(called.size,17);
+  await call('slack_delete_message',target);assert.equal(called.size,14);
   assert.equal(observed.length,5);assert.equal((await db.prepare('SELECT count(*) n FROM subscriptions').first()).n,0);
   const tables=(await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all()).results.map(r=>r.name);
   assert.deepEqual(tables,['subscriptions']);

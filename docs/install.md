@@ -150,7 +150,7 @@ This is verification of the endpoint, not another event-enablement step. [Slack'
    With `SLACKDOT_SITE_URL` set to the same Site origin, run `node tests/compatibility/hosted-check.mjs --post-publication`. Both anonymous and forged MCP requests must return 401 or 403. A 404 or 503 now fails. This strict mode is also the default when no mode argument is supplied; passing it does not replace the authenticated discovery and identity checks below.
 2. Use the **Plugin Creator skill's Sites MCP workflow** to connect and verify the SlackDot plugin. Publication provisions the Site's associated ChatGPT plugin; reuse it instead of creating a second plugin package or a generic connector. The [OpenAI MCP guide](https://learn.chatgpt.com/docs/extend/mcp) describes the Site-hosted plugin connection.
 3. Read `get_site` with `include_mcp_connection: true` and retain the returned plugin ID/reference. When installation is needed, use the supported plugin installation/connection flow. A plugin ID alone does not prove connection. Let the owner complete any required consent.
-4. Verify owner-authenticated discovery: **17 tools and five event types**. Call `slack_get_connection_info` and compare the workspace, bot user and bot IDs to phase 3. No Slack write is needed for this check.
+4. Verify owner-authenticated discovery: **14 tools and five event types**. Call `slack_get_connection_info` and compare the workspace, bot user and bot IDs to phase 3. No Slack write is needed for this check.
 
 **Complete when:** tools and native event types are discoverable and identity matches. If tools need a new chat to appear, provide the exact plugin reference and resume there; do not repeatedly recreate plugins. If the target ChatGPT connection can only be verified by the Dot, carry this explicit check into the handoff and label it pending until the Dot confirms it.
 
@@ -173,7 +173,7 @@ Expected bot ID: <bot ID>
 My human Slack member ID: <verified human member ID>
 My bot DM: <verified DM ID, or "retrieve it with slack_open_dm">
 
-Use this SlackDot plugin and native ChatGPT event automation controls. Verify the connection identity, discovery of 17 tools and five event types, and my human member profile. Retrieve/open my bot DM if needed; do not send a greeting.
+Use this SlackDot plugin and native ChatGPT event automation controls. Verify the connection identity, discovery of 14 tools and five event types, and my human member profile. Retrieve/open my bot DM if needed; do not send a greeting.
 
 Reconcile existing automations. Create one enabled native automation for slack.message.created with exactly {"conversation_id":"<verified bot DM ID>","sender_user_ids":["<verified human member ID>"]}. Reuse an equivalent automation if present. Do not modify unrelated automations. No polling schedule.
 

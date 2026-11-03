@@ -47,10 +47,10 @@ describe('SDK protocol contract',()=>{
     expect(body.error).toBeUndefined();expect(body.result.supportedVersions).toContain('2026-07-28');
     expect(body.result.resultType).toBe('complete');expect(body.result.capabilities).toEqual({tools:{listChanged:false},events:{}});
   });
-  it('lists all seventeen tools and five events with strict filters',async()=>{
+  it('lists all fourteen tools and five events with strict filters',async()=>{
     const e=env(database().db);
     const tools=await (await handleMcp(rpc('tools/list'),e)).json() as any;
-    expect(tools.error).toBeUndefined();expect(tools.result.tools.map((t:any)=>t.name).sort()).toEqual(['slack_get_connection_info','slack_list_conversations','slack_get_conversation','slack_list_users','slack_get_user','slack_open_dm','slack_get_messages','slack_get_thread','slack_send_message','slack_update_message','slack_delete_message','slack_get_reactions','slack_add_reaction','slack_remove_reaction','slack_set_assistant_status','slack_set_assistant_title','slack_set_assistant_suggested_prompts'].sort());
+    expect(tools.error).toBeUndefined();expect(tools.result.tools.map((t:any)=>t.name).sort()).toEqual(['slack_get_connection_info','slack_list_conversations','slack_get_conversation','slack_list_users','slack_get_user','slack_open_dm','slack_get_messages','slack_get_thread','slack_send_message','slack_update_message','slack_delete_message','slack_get_reactions','slack_add_reaction','slack_remove_reaction'].sort());
     const send=tools.result.tools.find((t:any)=>t.name==='slack_send_message');
     expect(send.annotations.idempotentHint).toBe(false);
     expect(send.inputSchema.required).not.toContain('request_id');

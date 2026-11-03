@@ -16,22 +16,6 @@ export const historySchema=z.object({conversation_id:conversationId,...page,olde
 export const messageTargetSchema=z.object({conversation_id:conversationId,message_ts:timestamp}).strict();
 export const updateSchema=messageTargetSchema.extend({text:messageText}).strict();
 export const reactionSchema=messageTargetSchema.extend({emoji_name:z.string().min(1).max(100).regex(/^[a-zA-Z0-9_+\-]+(?:::skin-tone-[2-6])?$/)}).strict();
-const assistantThreadSchema=z.object({conversation_id:conversationId,thread_ts:timestamp}).strict();
-export const assistantStatusSchema=assistantThreadSchema.extend({
-  status:z.string().max(4000).describe('Status suffix after the app name; an empty string clears it.'),
-  loading_messages:z.array(messageText).min(1).max(10).optional(),
-  icon_emoji:z.string().min(1).max(100).optional(),
-  icon_url:z.url({protocol:/^https?$/}).max(2048).optional(),
-  username:z.string().min(1).max(256).optional(),
-}).strict();
-export const assistantTitleSchema=assistantThreadSchema.extend({title:messageText}).strict();
-export const assistantPromptsSchema=z.object({
-  conversation_id:conversationId,
-  thread_ts:timestamp.optional().describe('For legacy assistant_view only. Omit for agent_view apps.'),
-  title:z.string().max(4000).optional(),
-  prompts:z.array(z.object({title:messageText,message:messageText}).strict()).max(4),
-}).strict();
-export const assistantResultSchema=z.object({conversation_id:conversationId,thread_ts:timestamp.nullable(),ok:z.literal(true)}).strict();
 export const messageResultSchema=z.object({message_ts:timestamp,thread_ts:timestamp,author_id:z.string().nullable(),text:z.string().max(4000),truncated:z.boolean()}).strict();
 export const messagePageSchema=z.object({source:z.string(),complete:z.boolean(),next_cursor:z.string().nullable(),messages:z.array(messageResultSchema).max(100)}).strict();
 export const conversationResultSchema=z.object({conversation_id:conversationId,type:z.enum(['public_channel','private_channel','im']),name:z.string().max(256).nullable(),user_id:z.string().nullable(),topic:z.string().max(1000),purpose:z.string().max(1000),truncated:z.boolean()}).strict();
@@ -219,33 +203,6 @@ export class SlackService {
   }
   async addReaction(input:z.infer<typeof reactionSchema>) {return this.changeReaction(input,true);}
   async removeReaction(input:z.infer<typeof reactionSchema>) {return this.changeReaction(input,false);}
-  async setAssistantStatus(input:z.infer<typeof assistantStatusSchema>) {
-    await this.access(input.conversation_id);
-    const {conversation_id,...args}=input;
-    try {
-      const r=await this.client.assistant.threads.setStatus({token:this.env.SLACK_BOT_TOKEN,channel_id:conversation_id,...args});
-      if(r.ok!==true) throw new Failure('ambiguous_write');
-      return {conversation_id,thread_ts:input.thread_ts,ok:true as const};
-    } catch(e) {throw writeFailure(e);}
-  }
-  async setAssistantTitle(input:z.infer<typeof assistantTitleSchema>) {
-    await this.access(input.conversation_id);
-    const {conversation_id,...args}=input;
-    try {
-      const r=await this.client.assistant.threads.setTitle({token:this.env.SLACK_BOT_TOKEN,channel_id:conversation_id,...args});
-      if(r.ok!==true) throw new Failure('ambiguous_write');
-      return {conversation_id,thread_ts:input.thread_ts,ok:true as const};
-    } catch(e) {throw writeFailure(e);}
-  }
-  async setAssistantSuggestedPrompts(input:z.infer<typeof assistantPromptsSchema>) {
-    await this.access(input.conversation_id);
-    const {conversation_id,...args}=input;
-    try {
-      const r=await this.client.assistant.threads.setSuggestedPrompts({token:this.env.SLACK_BOT_TOKEN,channel_id:conversation_id,...args});
-      if(r.ok!==true) throw new Failure('ambiguous_write');
-      return {conversation_id,thread_ts:input.thread_ts??null,ok:true as const};
-    } catch(e) {throw writeFailure(e);}
-  }
   private async changeReaction(input:z.infer<typeof reactionSchema>,add:boolean) {
     await this.access(input.conversation_id);
     const state=add?'present' as const:'absent' as const;

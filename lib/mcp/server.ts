@@ -4,8 +4,7 @@ import { z } from 'zod';
 import { owner, Failure, type Env } from '../runtime/config';
 import { SlackService, sendSchema, threadSchema, conversationSchema, listConversationsSchema, listUsersSchema, userSchema,
   historySchema, messageTargetSchema, updateSchema, reactionSchema, messagePageSchema, conversationResultSchema,
-  userResultSchema, targetResultSchema, reactionResultSchema, reactionsResultSchema,
-  assistantStatusSchema, assistantTitleSchema, assistantPromptsSchema, assistantResultSchema } from '../slack/service';
+  userResultSchema, targetResultSchema, reactionResultSchema, reactionsResultSchema } from '../slack/service';
 import { eventDefinitions, eventNames } from '../slack/normalize';
 import { subscribe, unsubscribe } from '../events/subscriptions';
 
@@ -56,12 +55,6 @@ export function server(env: Env, principal: string) {
     annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:true,openWorldHint:true}},input=>tool(()=>slack().addReaction(input)));
   mcp.registerTool('slack_remove_reaction',{description:'Remove only the reaction of this bot once. Already-absent returns changed:false; reactions from other users remain. Uncertain writes are not retried.',inputSchema:reactionSchema,outputSchema:reactionResultSchema,
     annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:true,openWorldHint:true}},input=>tool(()=>slack().removeReaction(input)));
-  mcp.registerTool('slack_set_assistant_status',{description:'Set a Slack assistant thread status, with optional rotating loading messages and bot display overrides. Slack adds the app name; use a suffix such as "is thinking...". Empty status clears it; a reply or two-minute timeout also clears it. Can open the thread for the user: use when intending to reply in thread. One attempt; ambiguous_write does not establish failure.',inputSchema:assistantStatusSchema,outputSchema:assistantResultSchema,
-    annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:false,openWorldHint:true}},input=>tool(()=>slack().setAssistantStatus(input)));
-  mcp.registerTool('slack_set_assistant_title',{description:'Set the title of a Slack assistant thread. Requires the Slack app Agents/assistant feature for the title to appear in DM history. One attempt; ambiguous_write does not establish failure.',inputSchema:assistantTitleSchema,outputSchema:assistantResultSchema,
-    annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:true,openWorldHint:true}},input=>tool(()=>slack().setAssistantTitle(input)));
-  mcp.registerTool('slack_set_assistant_suggested_prompts',{description:'Set up to four Slack suggested prompts, each with a title and message, plus an optional list title. Use thread_ts only for legacy assistant_view apps; omit it for agent_view apps or Slack may silently ignore the request. Without thread_ts Slack targets the latest message in the conversation. ok reports API acceptance, not visual verification. Uncertain writes are not retried.',inputSchema:assistantPromptsSchema,outputSchema:assistantResultSchema,
-    annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:false,openWorldHint:true}},input=>tool(()=>slack().setAssistantSuggestedPrompts(input)));
   // Extension methods remain isolated from the SDK-owned core wire protocol.
   mcp.server.setRequestHandler('events/list',{params:objectResult,result:objectResult},async()=>({events:eventDefinitions()}));
   mcp.server.setRequestHandler('events/subscribe',{params:objectResult,result:objectResult},async(params)=>{
