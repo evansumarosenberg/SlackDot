@@ -6,7 +6,7 @@ SlackDot lets a single Dot send and receive messages in multiple Slack workspace
 
 Start with a private conversation: DM your SlackDot bot, and your Dot replies in Slack. You can also invite the bot to channels and ask your Dot to follow specific conversations.
 
-## Install
+## Installation instructions for the human
 
 Give your Dot the prompt below with the Sites and Plugin Creator plugins available. It will deploy SlackDot and guide you through the manual setup. You will need permission to install a Slack app in your workspace.
 
