@@ -22,7 +22,7 @@ Use the latest `master` branch of this repository and the supported Sites workfl
 
 ### 1. Deploy the Site
 
-Deploy the application to a new public ChatGPT Site named SlackDot, with a fresh database and Site project ID. Replace `<SITE_PROJECT_ID>` in `.openai/hosting.json` with the ID returned by Sites before building or publishing. Keep MCP publishing disabled until configuration is complete. Everything must run on Sites.
+Deploy the application to a new public ChatGPT Site named SlackDot, with a fresh database and Site project ID. Replace `<SITE_PROJECT_ID>` in `.openai/hosting.json` with the ID returned by Sites before building or publishing, and keep the `mcp` capability enabled. Publishing creates a separate SlackDot plugin in ChatGPT that connects to the MCP server hosted on the Site. Everything must run on Sites.
 
 ### 2. Set up the Slack app
 
@@ -49,11 +49,9 @@ Have them enter the signing secret and bot token directly as secrets, never in c
 
 Redeploy to apply the settings, then confirm owner access and the Slack connection. [.env.example](.env.example) lists all variables and separates owner-entered values from agent-configured values.
 
-### 4. Connect Slack events and the plugin
+### 4. Connect the plugin
 
-Have the owner confirm Slack Event Subscriptions use the `request_url` configured in step 2, verify the URL and save with events enabled. Keep `message.channels`, `message.groups`, `message.im`, `reaction_added`, and `reaction_removed` enabled.
-
-After Slack and Site setup are complete, enable the `mcp` capability and publish to create the SlackDot plugin through Sites. Help the owner install/connect that plugin in ChatGPT and verify its workspace and bot identities.
+Help the owner install/connect the SlackDot plugin in ChatGPT, then verify its workspace and bot identities.
 
 ### 5. Set up replies to the owner's DMs
 
