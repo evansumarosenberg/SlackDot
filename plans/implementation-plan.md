@@ -1,6 +1,6 @@
 # SlackDot implementation plan
 
-Status: Steps 1–3 are implemented and deployed on version 13. All 14 tools and all five event types have passed live acceptance. Step 4 documentation is updated; only cleanup of the four temporary event-test automations remains before closing the handoff.
+Status: Implementation and live acceptance are complete on version 13: all 14 tools and all five event types passed. The user deleted all SlackDot subscriptions and the compatibility plugin in ChatGPT. The user-facing README now describes fresh installation. Shutting down the compatibility Site and launching a new Site named SlackDot are explicitly deferred to a separate session.
 Target: [specification](specification.md)
 Historical evidence: [compatibility results](compatibility-prototype-results.md)
 
@@ -26,7 +26,11 @@ All 14 tools passed through Dot on version 13. Identity matched the configured w
 
 Dot reported matching native deliveries for all four remaining types on human-authored synthetic fixture `1793674681.880999` in the public test channel: `slack.message.updated`, `slack.message.deleted`, `slack.reaction.added` and `slack.reaction.removed`. Updated-message author/editor matched the test user. Both reaction events identified that user as actor and reported `eyes`. Updates and reactions reported the exact root thread; deletion correctly reported `thread_ts:null`, retained its known author, and did not invent an actor. All reports came from native event payloads, with no Slack writes or subscription changes by the automations. Together with the accepted public/private/DM created-message tests, all five event types have passed native acceptance.
 
-Dot created exactly four temporary automations and verified their saved instructions. Native creation accepted the requested filters; listing did not independently expose trigger fields for readback. The edit test used sender/thread filters; reactions used actor/emoji/thread filters; deletion used sender/conversation filters and an exact-message guard. Cleanup remains: pause/remove only these four temporary automations, preserve the three original conversation subscriptions and the earlier paused thread-filtered automation, and reconcile that none of the four test automations remains enabled. No further event actions or Slack messages are needed.
+Dot created exactly four temporary automations and verified their saved instructions. Native creation accepted the requested filters; listing did not independently expose trigger fields for readback. The edit test used sender/thread filters; reactions used actor/emoji/thread filters; deletion used sender/conversation filters and an exact-message guard. The user subsequently deleted all SlackDot subscriptions and the compatibility plugin in ChatGPT, superseding the selective cleanup instructions. No further test actions are needed. This user-reported cleanup does not claim that the compatibility Site or its database has been deleted.
+
+### Fresh installation handoff
+
+The [README](../README.md) is the user-facing installation entry point. The next session should retire the compatibility Site and deploy a fresh Site named SlackDot, then guide manual Slack app/environment configuration, create/connect the Site-native plugin, and establish an owner-DM automation with explicit replies in Slack. Use fresh Site identity, database and secrets; do not reuse the prototype project ID, webhook URL, owner identity or test filters. One installation serves one workspace; one Dot can connect multiple installations. No Site shutdown, replacement deployment or plugin/subscription creation is authorized for execution in this documentation session.
 
 ## 2. Implementation sequence
 

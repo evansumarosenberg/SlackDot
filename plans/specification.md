@@ -1,6 +1,6 @@
 # SlackDot specification
 
-Status: the subscriptions-only runtime and full tool/event catalog are deployed on version 13. The forward removal migration, all 14 tools and all five event types passed live acceptance, including public/private/DM created-message round trips. Temporary event-test automation cleanup is tracked in the implementation plan. Historical integration evidence does not by itself verify this revision. External schedulers/services are disallowed.
+Status: the subscriptions-only runtime and full tool/event catalog passed live acceptance on version 13, including all 14 tools, all five event types and public/private/DM created-message round trips. The user has deleted all SlackDot subscriptions and the compatibility plugin in ChatGPT. The compatibility Site remains pending retirement; a fresh installation named SlackDot is deferred to a separate session, using the user-facing README. External schedulers/services are disallowed.
 Last updated: 2026-11-02  
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
 Next phase: [Full application implementation plan](implementation-plan.md)
