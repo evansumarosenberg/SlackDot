@@ -8,6 +8,12 @@ The user rejected operational retention and the unrequested diagnostics/maintena
 
 This supersedes the earlier transition advice to retain the delivery/write ledgers or add retention monitoring, maintenance infrastructure and reconciliation diagnostics. Historical test observations and tags remain historical evidence, not authorization to retain operational data going forward.
 
+## Full catalog implementation checkpoint
+
+Version 13 is live from `0356845bc09dd62a843af8ef6894db511cb3cce5`, deployment `appgdep_6ae94a412fc88191aaa02e18edd9eec2`, environment revision 12, succeeded 2026-11-03 02:43:23 UTC. It adds the agreed 14-tool/five-event catalog, strict filters, exact bot-authorship checks, bounded reaction/edit thread lookup and active-key rotation overlap. It retains subscriptions-only storage and the existing plugin/owner boundary. No Agent UI or external infrastructure was added.
+
+Verification: 165 local tests, TypeScript checks, Sites build, all ten bounded Worker scenarios and the complete synthetic catalog smoke passed. Native owner connection reports all five event types; hosted schema lists only subscriptions; anonymous/forged MCP calls remain rejected. The user confirmed reaction bot-event settings are saved. The three MEMORY round trips are accepted based on the user's authoritative Slack verification. Live acceptance of the newly added tools and edit/delete/reaction events remains separate and pending; historical prototype checks do not substitute for it.
+
 ## Review findings and decisions
 
 ### Subscription lifetime follow-up

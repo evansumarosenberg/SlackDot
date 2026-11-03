@@ -1,6 +1,6 @@
 # SlackDot implementation plan
 
-Status: Step 1 is implemented, deployed and accepted. Steps 2–3 are implemented and locally verified; their publication/native acceptance and Step 4 handoff are in progress.
+Status: Steps 1–3 are implemented and deployed on version 13. Step 1 hosted acceptance passed. The expanded catalog is locally verified; live checks of the new tools/events remain in progress. Step 4 documentation is updated; final acceptance awaits those checks.
 Target: [specification](specification.md)
 Historical evidence: [compatibility results](compatibility-prototype-results.md)
 
@@ -14,7 +14,9 @@ Version 11 (`05e487b`) deployed the table-independent Worker with environment re
 
 ## Current catalog verification
 
-The expanded implementation passes 165 unit/protocol tests, TypeScript checking and the Sites build. The built catalog smoke exercises all 14 tools and five event types with synthetic outbound services and only the subscriptions table. A full bounded-delivery regression is recorded alongside publication. Review fixes cover subscription recreation races, malformed Slack responses, root-edit/reaction thread resolution, self exclusion with unknown authorship, and the protocol-required 60-second signing-key overlap. The additive key fields remain part of active subscriptions, not operational history. No live renewal experiment was added. The user confirmed Slack's reaction bot-event settings are saved.
+The expanded implementation passes 165 unit/protocol tests, TypeScript checking and the Sites build. The built catalog smoke exercises all 14 tools and five event types with synthetic outbound services and only the subscriptions table. All ten bounded-delivery Worker scenarios passed: success, transient retry, exhaustion, permanent failure, long Retry-After, failed notice, timeout, interruption, fanout and duplicate ingress. Final local acknowledgments were 6–9 ms; timeout exhaustion completed in about 15.5 seconds. These are synthetic local timings, not hosted latency measurements. Review fixes cover subscription recreation races, malformed Slack responses, root-edit/reaction thread resolution, self exclusion with unknown authorship, and the protocol-required 60-second signing-key overlap. The additive key fields remain part of active subscriptions, not operational history. No live renewal experiment was added. The user confirmed Slack's reaction bot-event settings are saved.
+
+Version 13 deployed source `0356845bc09dd62a843af8ef6894db511cb3cce5` via deployment `appgdep_6ae94a412fc88191aaa02e18edd9eec2` (environment revision 12), succeeded 2026-11-03 02:43:23 UTC. Native owner identity/capability calls report all five event types. Live schema inspection still shows only `subscriptions`. Anonymous/forged MCP probes return 401 and forged setup identity is not reflected. The current chat's connector catalog still exposes the original three tools, so the new-tool native smoke is delegated to Dot through the user. No extra plugin was created.
 
 ## 2. Implementation sequence
 
