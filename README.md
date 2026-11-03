@@ -2,7 +2,7 @@
 
 **One Dot, Many Slacks.**
 
-SlackDot lets a single Dot send and receive messages in multiple Slack workspaces. Each workspace gets its own Slack bot and ChatGPT Site, connected to the same Dot through a ChatGPT plugin. Everything runs on Sites.
+SlackDot lets a single Dot send and receive messages in multiple Slack workspaces. Each workspace gets its own Slack bot, each connected to the Dot through an MCP server that is automatically deployed on ChatGPT Sites. MCP 2.0 event subscriptions are fully supported, so the Dot can create event-triggered automations.
 
 Start with a private conversation: DM your SlackDot bot, and your Dot replies in Slack. You can also invite the bot to channels and ask your Dot to follow specific conversations.
 
@@ -26,13 +26,28 @@ Deploy the application to a new public ChatGPT Site named SlackDot, with a fresh
 
 ### 2. Set up the Slack app
 
-Guide the owner through creating and installing a Slack app using [slack-app-manifest.json](slack-app-manifest.json). Omit `request_url` from the initial import while the endpoint is being configured; retain its scopes (including `assistant:write`) and bot events. Help the owner find the workspace, app, bot user and bot IDs, and their own Slack member ID.
+Guide the owner through creating and installing a Slack app using [slack-app-manifest.json](slack-app-manifest.json). Omit `request_url` from the initial import while the endpoint is being configured; retain its scopes (including `assistant:write`) and bot events. Help the owner find the app ID, signing secret, bot token, and bot user ID.
 
 ### 3. Configure the Site
 
-Guide the owner through setting all variables in [.env.example](.env.example) through the Site's environment settings. Have them enter Slack credentials and the subscription encryption key directly as secrets, never in chat. Generate the encryption key as 32 random bytes encoded as base64 and keep it stable.
+Guide the owner through setting only these four variables in the Site's environment settings:
 
-Use the owner's signed-in identity from the new Site's `/setup` page for `OWNER_USER_ID`; this is different from their Slack member ID. Use `https://connectors.api.openai.com` for `CALLBACK_ALLOWED_ORIGINS`. Verify the hosted identity boundary before enabling `SITES_IDENTITY_VERIFIED=true`, then confirm owner access and the Slack connection. Wait for manual configuration and redeploy to apply it.
+```dotenv
+SLACK_APP_ID=
+SLACK_SIGNING_SECRET=
+SLACK_BOT_TOKEN=
+SLACK_BOT_USER_ID=
+```
+
+Have them enter the signing secret and bot token directly as secrets, never in chat. Wait for those settings, then configure the remaining variables yourself through Sites:
+
+- `SLACK_TEAM_ID` and `SLACK_BOT_ID`: derive from Slack's `auth.test` using the configured bot token; verify that its user ID matches `SLACK_BOT_USER_ID`. Keep the token out of output.
+- `OWNER_USER_ID`: obtain the owner's authenticated Site identity from the new Site's `/setup` page. This is a Site-specific ChatGPT identity, not a Slack member ID.
+- `SUBSCRIPTION_ENCRYPTION_KEY`: generate 32 cryptographically random bytes, encode as base64, and save as a Site secret. Keep it stable across deployments and out of chat.
+- `CALLBACK_ALLOWED_ORIGINS`: set to `https://connectors.api.openai.com`.
+- `SITES_IDENTITY_VERIFIED`: set to `true` after verifying the hosted identity boundary.
+
+Redeploy to apply the settings, then confirm owner access and the Slack connection. [.env.example](.env.example) lists all variables and separates owner-entered values from agent-configured values.
 
 ### 4. Connect Slack events and the plugin
 
