@@ -26,7 +26,7 @@ Deploy the application to a new public ChatGPT Site named SlackDot, with a fresh
 
 ### 2. Set up the Slack app
 
-Guide the owner through creating and installing a Slack app using [slack-app-manifest.json](slack-app-manifest.json). Omit `request_url` from the initial import while the endpoint is being configured; retain its scopes (including `assistant:write`) and bot events. Help the owner find the app ID, signing secret, bot token, and bot user ID.
+Replace `<SITE_HOST>` in [slack-app-manifest.json](slack-app-manifest.json) with the hostname of the Site deployed in step 1, keeping `/slack/events` as the request path. Guide the owner through creating and installing a Slack app using that manifest; retain its scopes and bot events. Help the owner find the app ID, signing secret, bot token, and bot user ID.
 
 ### 3. Configure the Site
 
@@ -51,7 +51,7 @@ Redeploy to apply the settings, then confirm owner access and the Slack connecti
 
 ### 4. Connect Slack events and the plugin
 
-Replace `<SITE_HOST>` in the manifest's `request_url` with the deployed Site's hostname. Have the owner enable Slack Event Subscriptions at that HTTPS URL ending in `/slack/events`, verify the URL and save. Keep `message.channels`, `message.groups`, `message.im`, `reaction_added` and `reaction_removed` enabled.
+Have the owner confirm Slack Event Subscriptions use the `request_url` configured in step 2, verify the URL and save with events enabled. Keep `message.channels`, `message.groups`, `message.im`, `reaction_added`, and `reaction_removed` enabled.
 
 After Slack and Site setup are complete, enable the `mcp` capability and publish to create the SlackDot plugin through Sites. Help the owner install/connect that plugin in ChatGPT and verify its workspace and bot identities.
 
