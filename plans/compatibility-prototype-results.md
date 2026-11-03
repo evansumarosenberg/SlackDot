@@ -285,6 +285,8 @@ Independent native prototype thread reads confirmed exactly the human parent and
 
 ### Transition checkpoint and remaining product work (current)
 
+The execution sequence for the remaining scope is now captured in [the implementation plan](implementation-plan.md), starting with owner setup, diagnostics and invocation-driven maintenance. The plan does not mark those product features implemented.
+
 The evaluated runtime is clean Site version 9, source `d239f07cc67dca026eef912d096a013f244eb0dc`, deployment `appgdep_6ae91f78d4088191b7a247bdcd3e78bb`, environment revision 11. Preserve this exact source as `compatibility-prototype-v3`. Integrate the documentation checkpoint and validated foundation into the existing local `master` development line without creating a second application tree. Earlier v1/v2 tags preserve superseded evidence.
 
 Retain the Bolt receiver and redirect-safe transport, trusted owner authorization, MCP v2 adapter, native event lifecycle handlers, exact-origin callback policy, D1 schema/migrations, write deduplication, bounded delivery/notice modules, and focused tests. The temporary hosted hook has been removed from the production import graph; its fixed fixture remains test-only regression evidence. Keep the manual runner diagnostic-only. Do not introduce an external scheduler or promise background recovery beyond the accepted request window.

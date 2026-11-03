@@ -3,6 +3,7 @@
 Status: Sites-only bounded delivery and best-effort failure feedback implemented and verified in the compatibility prototype. The feasibility decision and transition checkpoint are recorded; full-product implementation remains. External schedulers/services are disallowed.
 Last updated: 2026-11-02  
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
+Next phase: [Full application implementation plan](implementation-plan.md)
 
 ## 1. Purpose
 
