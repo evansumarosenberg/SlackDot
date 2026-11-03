@@ -22,11 +22,11 @@ Use the latest `master` branch of this repository and the supported Sites workfl
 
 ### 1. Deploy the Site
 
-Deploy the existing application to a new public ChatGPT Site named SlackDot, with a fresh database and Site project ID. Replace the prototype identity in `.openai/hosting.json`. Keep MCP publishing disabled until configuration is complete. Everything must run on Sites.
+Deploy the application to a new public ChatGPT Site named SlackDot, with a fresh database and Site project ID. Replace `<SITE_PROJECT_ID>` in `.openai/hosting.json` with the ID returned by Sites before building or publishing. Keep MCP publishing disabled until configuration is complete. Everything must run on Sites.
 
 ### 2. Set up the Slack app
 
-Guide the owner through creating and installing a Slack app using [slack-app-manifest.json](slack-app-manifest.json). Remove its prototype `request_url` for initial setup; retain its scopes (including `assistant:write`) and bot events. Help the owner find the workspace, app, bot user and bot IDs, and their own Slack member ID.
+Guide the owner through creating and installing a Slack app using [slack-app-manifest.json](slack-app-manifest.json). Omit `request_url` from the initial import while the endpoint is being configured; retain its scopes (including `assistant:write`) and bot events. Help the owner find the workspace, app, bot user and bot IDs, and their own Slack member ID.
 
 ### 3. Configure the Site
 
@@ -36,7 +36,7 @@ Use the owner's signed-in identity from the new Site's `/setup` page for `OWNER_
 
 ### 4. Connect Slack events and the plugin
 
-Have the owner enable Slack Event Subscriptions at `<new-site-url>/slack/events`, verify the URL and save. Keep `message.channels`, `message.groups`, `message.im`, `reaction_added` and `reaction_removed` enabled.
+Replace `<SITE_HOST>` in the manifest's `request_url` with the deployed Site's hostname. Have the owner enable Slack Event Subscriptions at that HTTPS URL ending in `/slack/events`, verify the URL and save. Keep `message.channels`, `message.groups`, `message.im`, `reaction_added` and `reaction_removed` enabled.
 
 After Slack and Site setup are complete, enable the `mcp` capability and publish to create the SlackDot plugin through Sites. Help the owner install/connect that plugin in ChatGPT and verify its workspace and bot identities.
 

@@ -36,7 +36,7 @@
   },
   "settings": {
     "event_subscriptions": {
-      "request_url": "https://slackdot-compatibility.paryllax.chatgpt.site/slack/events",
+      "request_url": "https://<SITE_HOST>/slack/events",
       "bot_events": [
         "message.channels",
         "message.groups",
