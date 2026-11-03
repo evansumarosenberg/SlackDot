@@ -2,6 +2,12 @@
 
 Evaluation date: 2026-11-02. Status: compatibility feasibility gate passed under the accepted Sites-only bounded-delivery contract; Steps 6–8 complete. Full product implementation and production readiness remain separate work. The user explicitly disallows external schedulers/services. Earlier hybrid-topology conclusions below are superseded, not accepted deployment decisions. This is not a production-readiness claim.
 
+## Current storage correction
+
+The user rejected operational retention and the unrequested diagnostics/maintenance scope. The current specification permits only subscriptions in D1, with events, attempts and write results confined to request memory. The following prototype results describe the older stored-event/outbox implementation and do not validate the replacement. Deployed version 10 still writes those records as of this documentation update; no runtime migration or data deletion occurred in this update. Removing its operational tables/writers is the first task in [the revised implementation plan](implementation-plan.md).
+
+This supersedes the earlier transition advice to retain the delivery/write ledgers or add retention monitoring, maintenance infrastructure and reconciliation diagnostics. Historical test observations and tags remain historical evidence, not authorization to retain operational data going forward.
+
 ## Review findings and decisions
 
 ### Subscription lifetime follow-up
@@ -287,7 +293,7 @@ The user relayed Dot's successful native event-run reports for both exact event 
 
 Independent native prototype thread reads confirmed exactly the human parent and the expected bot reply in each correct thread, with `complete=true`, null cursor, and no truncation. Hosted bot-reply ingress was accepted at 22:35:54.873 UTC (request `d6fd01a7c5f86518a02565651a4a9207`) and 22:36:07.445 UTC (request `a20b962e2e29bc1875030a9a14176be5`), both with `ack_ms=0` at runtime clock resolution. A complete post-reply D1 outbox read still contained exactly the three human marker jobs, all delivered with one attempt and no error. There were no bot-reply fanout jobs. This completes private-channel and DM native event-to-threaded-reply checks, following a manual outbox trigger, and verifies their self-loop suppression.
 
-### Transition checkpoint and remaining product work (current)
+### Historical transition checkpoint (superseded by the storage correction)
 
 The execution sequence for the remaining scope is now captured in [the implementation plan](implementation-plan.md), starting with owner setup, diagnostics and invocation-driven maintenance. The plan does not mark those product features implemented.
 

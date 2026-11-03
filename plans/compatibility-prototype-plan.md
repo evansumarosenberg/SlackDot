@@ -1,6 +1,8 @@
 # SlackDot compatibility prototype plan
 
 Status: Steps 6–8 complete. Sites-only bounded-delivery feasibility passed on clean version 9, including automatic public/private/DM round trips and controlled hosted failure feedback. The decision, evidence, accepted limitations, and transition checkpoint are recorded in [results](compatibility-prototype-results.md). External schedulers/services remain explicitly disallowed; full-product work is subsequent scope.
+
+**Superseded storage design:** this completed prototype used operational persistence. The current [specification](specification.md) permits subscriptions only. Its old outbox, receipt, write-ledger and notice-state requirements below are historical, not instructions for further implementation; use [the revised implementation plan](implementation-plan.md).
 Last updated: 2026-11-02  
 Target specification: [SlackDot specification](specification.md)
 

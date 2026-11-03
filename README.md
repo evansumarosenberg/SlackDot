@@ -2,6 +2,8 @@
 
 A TypeScript Slack bot integration for one controlling dot, deployed through ChatGPT Sites. Implements three MCP tools and one webhook event. Read plans/compatibility-prototype-results.md before treating any hosted integration as verified.
 
+**Storage revision pending:** the current deployed prototype still uses the operational storage described below. The user has rejected that design. The [current specification](plans/specification.md) allows subscriptions only; [implementation step 1](plans/implementation-plan.md) removes operational tables/writers and the manual runner. This documentation update does not delete deployed data. The existing runtime instructions below describe the prototype, not the revised target.
+
 ## Local development
 
 Use Node 22.13+ (the SQLite test harness requires Node 22.13+). Install with the supported Sites installer, or npm run install:ci from a clean lockfile checkout. Run npm run typecheck, npm test, npm run build, then node tests/compatibility/worker-smoke.mjs. The smoke harness uses Miniflare supplied by the locked Wrangler dependency. It runs the built bundle and the actual D1 migration. Tests use synthetic data only.
