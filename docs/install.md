@@ -1,8 +1,28 @@
 # Install SlackDot
 
-This is the ordered installation procedure for **Codex**. The owner performs the Slack app and credential-entry steps; **the Dot in ChatGPT** creates and runs the final native automation. Read [AGENTS.md](../AGENTS.md) first. Follow the installed Sites and Plugin Creator skills for current tool schemas and source/build/publish mechanics.
+This is the ordered installation procedure for an **installation agent: either Codex or ChatGPT Work, including a cloud session**. The owner performs the Slack app and credential-entry steps; **the intended Dot in ChatGPT** creates and runs the final native automation. Read [AGENTS.md](../AGENTS.md) first. Follow the installed Sites and Plugin Creator skills for current tool schemas and source/build/publish mechanics.
 
 Use the existing application from the repository's `master` branch. Install one Site, Slack app and plugin per workspace. Derive the workspace from the installed bot token; do not begin by asking for a workspace URL or name. The owner selects the workspace in Slack's app-creation UI.
+
+## Session access and human handoffs
+
+Both installation agents use the same phases below. [Sites supports building in ChatGPT or Codex](https://learn.chatgpt.com/docs/sites/creating-a-site). Use the session's supported Sites execution environment for source preparation, dependency installation, builds and publication; do not assume a local Windows path or transfer a local shell command unchanged into a cloud environment. Fetch the repository in that environment. For a partial installation, recover its existing source through the Sites workflow instead of starting over.
+
+ChatGPT Work's cloud browser is separate from the owner's local browser and does not inherit its cookies, tabs, passwords or signed-in sessions. Website sign-in support depends on plan, rollout and workspace policy; the current [cloud browser documentation](https://learn.chatgpt.com/docs/browser) says it is unavailable in Enterprise/Edu workspaces. Check the actual session's tools and use the applicable handoff below; do not assume cloud sign-in is available or treat its absence as a reason to abandon build/deployment work.
+
+| Needed access | Agent action | Human handoff when needed |
+| --- | --- | --- |
+| Sites source/build/publish tools | Use the installed Sites skill and supported execution environment | If required tools are unavailable, enable the plugin or resume the same Site in a capable Codex/Work session |
+| Owner sign-in at `/setup` | Read the identity through an authenticated supported browser | Owner opens the exact Site's `/setup` in their own browser, signs in and shares only the displayed non-secret Site identity; the agent sets `OWNER_USER_ID` |
+| Slack app management and Site settings | Prepare the manifest and give exact links and field instructions | Owner imports/installs the app and saves the four specified values directly in Site settings |
+| Direct `auth.test` credential access | Use a supported secure execution/input mechanism; do not assume Site secrets can be read back | Owner completes a supported secure credential handoff, or installation resumes in a session that can securely use the same token; never paste it into chat |
+| Authenticated setup verification | Read the owner's `/setup` connection result after configuration | Owner reports the displayed non-secret workspace/bot IDs or error; this verifies the owner path alongside the agent's public rejection probes |
+| Slack Request URL verification | Guide verification after configuration is deployed | Owner completes the challenge in Slack app settings and reports verified status or the error |
+| Plugin consent and native automation | Verify the plugin in the target ChatGPT context | Owner connects the plugin and gives the phase 6 prompt to the intended Dot |
+
+The four owner-entered environment variables remain the same in every session. These handoffs do not require the owner to configure the other six variables. Never request cookies, passwords, access tokens or an environment export in chat. The Site identity and connection IDs are non-secret results, not credentials that bypass authentication.
+
+If a required secure action cannot be performed in the current session, preserve completed work and hand off at that phase with the non-secret progress note below. Do not recreate the Site or copy secrets into the handoff. Plugin connections must be checked in the receiving session; they are not proven by a connection in the installation session.
 
 ## Sequence and dependencies
 
@@ -28,7 +48,7 @@ Keep a concise, non-secret progress note in the installation chat: checkout/comm
 3. Set `capabilities` to `[]` for this initial publication. Preserve `"d1": "DB"` and `"r2": null`. Do not enable MCP yet, even though the repository's final manifest includes it.
 4. Install dependencies with the Sites installer. Run `npm test` and `npm run typecheck` once for the selected source. Build/package with the Sites helper, save the exact source version and deploy with public access. Public HTTP access is needed for Slack's signed webhook; protected routes still enforce owner authorization. Await a successful deployment before proceeding.
 5. Confirm `GET /health` returns HTTP 200 with `service: "SlackDot"`. This proves application availability, not Slack or MCP readiness.
-6. Open `<site-url>/setup` in the owner's authenticated browser. If sign-in is required, let the owner complete it, then read the displayed **signed-in Site identity**. Keep this as the value to configure for `OWNER_USER_ID`; do not ask the owner to type it into Site settings. A Sites account ID, email, Slack ID or another Site's owner ID is not a substitute.
+6. Open `<site-url>/setup` in the owner's authenticated browser. If sign-in is required and supported, let the owner complete it, then read the displayed **signed-in Site identity**. If the session cannot access authenticated pages, give the owner the exact URL and ask them to sign in in their own browser and share only that displayed identity. Keep this as the value to configure for `OWNER_USER_ID`; do not ask the owner to type it into Site settings. A Sites account ID, email, Slack ID or another Site's owner ID is not a substitute.
 
 **Complete when:** the public Site is deployed and the owner's actual Site identity has been obtained. At this stage `/setup` may show only that identity; `/mcp` and `/slack/events` may reject requests with `configuration_missing`. Do not attempt native discovery or Slack URL verification yet.
 
@@ -72,7 +92,7 @@ This is a request shape, not a command containing a literal secret. Use an execu
 
 **Do not call `SlackService.identity()` or `slack_get_connection_info` to derive these IDs.** Those application helpers intentionally require the expected IDs first so they can check for an installation mismatch. Slack's direct API has no such dependency.
 
-Sites' environment read API may redact saved secrets. Do not assume that saving a token makes it available to a local Codex process. Use a supported secure credential-access/input mechanism available in the session, or authorized access to the owner's signed-in Slack app credentials through supported browser tools. If neither is available, pause at this specific step and report that secure token access is missing. Ask to establish secure access to the same bot token, not for the derived IDs or a token pasted into chat. Do not add a public endpoint, dump secrets, change the app's guards or falsely report `auth.test` as completed.
+Sites' environment read API may redact saved secrets. Do not assume that saving a token makes it available to the installation agent's local or cloud process. Use a supported secure credential-access/input mechanism available in the session, or authorized access to the owner's signed-in Slack app credentials through supported browser tools. A cloud browser cannot reuse a local Slack sign-in, and an authenticated browser alone does not guarantee secure token access for execution. If neither mechanism is available, pause at this specific step and report that secure token access is missing. Ask to establish secure access to the same bot token, or hand off the existing installation to a capable session; do not ask for the derived IDs or a token pasted into chat. Do not add a public endpoint, dump secrets, change the app's guards or falsely report `auth.test` as completed.
 
 Use only a successful **bot-token** response:
 
@@ -102,7 +122,7 @@ Generate the encryption key once and keep it stable on resume and redeployment. 
 
 Deploy the saved non-MCP version with the updated environment revision. Verify the public identity boundary using `tests/compatibility/hosted-check.mjs`, with its process-local `SLACKDOT_SITE_URL` set to this Site's origin. That test variable is not an application runtime setting. Confirm that forged `/setup` headers do not create an identity and anonymous/forged MCP requests cannot succeed. The script alone does not prove authenticated owner access.
 
-After these checks and the genuine signed-in `/setup` identity are established, set `SITES_IDENTITY_VERIFIED=true` and redeploy to apply it. Reopen `/setup` in the owner's signed-in session: required configuration should be present and the Slack connection should return the expected workspace and bot IDs. Recheck anonymous/forged requests after enabling trust. Do not accept successful unauthorized access, or a permanent 503 on every request, as a working boundary.
+After these checks and the genuine signed-in `/setup` identity are established, set `SITES_IDENTITY_VERIFIED=true` and redeploy to apply it. Reopen `/setup` in the owner's signed-in session: required configuration should be present and the Slack connection should return the expected workspace and bot IDs. If authenticated browsing is unavailable to the agent, have the owner open the page and report those non-secret IDs or the displayed error. Recheck anonymous/forged requests after enabling trust. Do not accept successful unauthorized access, or a permanent 503 on every request, as a working boundary.
 
 **Complete when:** all ten application variables are configured, the environment revision is deployed, the owner can verify the Slack connection, and unauthorized requests remain rejected. No MCP publication is required to use the authenticated setup page.
 
@@ -129,9 +149,9 @@ This is verification of the endpoint, not another event-enablement step. [Slack'
 
 ## 6. Hand off to the Dot and test an owner DM
 
-Codex installs the application; the intended **Dot in ChatGPT** owns the native automation. Do not create a Codex scheduled task or a polling schedule as a substitute.
+The installation agent prepares the application; the intended **Dot in ChatGPT** owns the native automation. An installation Work session is not automatically the intended Dot. If the owner explicitly identifies that session as their intended Dot and it exposes native event automation controls, continue there. Otherwise use the handoff below. Do not create a Codex scheduled task or a polling schedule as a substitute.
 
-Determine the human owner's Slack member ID from an authenticated Slack profile or an unambiguous profile lookup confirmed by the owner. If it cannot be established, ask for **Copy member ID** from their own Slack profile. This is the only human Slack ID needed; it is not an environment variable, and it cannot be inferred from a bot token's `user_id`. Use `slack_get_user` to verify the member and `slack_open_dm` to retrieve/open their bot DM without sending a greeting. Codex may do these read/setup calls if its connection is available; otherwise the Dot does them in the handoff.
+Determine the human owner's Slack member ID from an authenticated Slack profile or an unambiguous profile lookup confirmed by the owner. If it cannot be established, ask for **Copy member ID** from their own Slack profile. This is the only human Slack ID needed; it is not an environment variable, and it cannot be inferred from a bot token's `user_id`. Use `slack_get_user` to verify the member and `slack_open_dm` to retrieve/open their bot DM without sending a greeting. The installation agent may do these read/setup calls if its connection is available; otherwise the Dot does them in the handoff.
 
 Give the owner this self-contained prompt, substituting all known installation values. Include the exact plugin link/reference so the Dot selects the correct workspace connection. If the DM ID has not yet been retrieved, say so explicitly and instruct the Dot to retrieve it; do not invent it.
 
