@@ -43,7 +43,7 @@ it.each([
   [{code:'slack_webapi_rate_limited_error',retryAfter:12},'rate_limited'],
   [{data:{error:'missing_scope'}},'missing_scope'],
   [{data:{error:'token_revoked'}},'installation_revoked'],
-  [{data:{error:'not_in_channel'}},'conversation_unavailable'],
+  [{data:{error:'not_in_channel'}},'not_in_conversation'],
   [{data:{error:'msg_too_long'}},'invalid_message'],
   [{data:{error:'internal_error'}},'ambiguous_write'],
 ])('reports bounded Slack rejections and uncertainty without retries',async(error,category)=>{

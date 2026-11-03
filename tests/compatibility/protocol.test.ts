@@ -47,15 +47,15 @@ describe('SDK protocol contract',()=>{
     expect(body.error).toBeUndefined();expect(body.result.supportedVersions).toContain('2026-07-28');
     expect(body.result.resultType).toBe('complete');expect(body.result.capabilities).toEqual({tools:{listChanged:false},events:{}});
   });
-  it('lists exactly three tools and one event with strict filters',async()=>{
+  it('lists all fourteen tools and five events with strict filters',async()=>{
     const e=env(database().db);
     const tools=await (await handleMcp(rpc('tools/list'),e)).json() as any;
-    expect(tools.error).toBeUndefined();expect(tools.result.tools.map((t:any)=>t.name).sort()).toEqual(['slack_get_connection_info','slack_get_thread','slack_send_message']);
+    expect(tools.error).toBeUndefined();expect(tools.result.tools.map((t:any)=>t.name).sort()).toEqual(['slack_get_connection_info','slack_list_conversations','slack_get_conversation','slack_list_users','slack_get_user','slack_open_dm','slack_get_messages','slack_get_thread','slack_send_message','slack_update_message','slack_delete_message','slack_get_reactions','slack_add_reaction','slack_remove_reaction'].sort());
     const send=tools.result.tools.find((t:any)=>t.name==='slack_send_message');
     expect(send.annotations.idempotentHint).toBe(false);
     expect(send.inputSchema.required).not.toContain('request_id');
     const events=await (await handleMcp(rpc('events/list'),e)).json() as any;
-    expect(events.error).toBeUndefined();expect(events.result.events).toHaveLength(1);
+    expect(events.error).toBeUndefined();expect(events.result.events.map((e:any)=>e.name).sort()).toEqual(['slack.message.created','slack.message.updated','slack.message.deleted','slack.reaction.added','slack.reaction.removed'].sort());
     expect(events.result.events[0].inputSchema.additionalProperties).toBe(false);
     expect(events.result.events[0].delivery).toEqual(['webhook']);
   });

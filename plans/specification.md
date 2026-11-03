@@ -1,6 +1,6 @@
 # SlackDot specification
 
-Status: the subscriptions-only, request-scoped runtime is implemented. The forward removal migration and hosted acceptance are being completed under implementation Step 1; see the implementation plan for current evidence. Historical integration evidence does not by itself verify this revision. External schedulers/services are disallowed.
+Status: the subscriptions-only, request-scoped runtime is implemented. The forward removal migration and public/private/DM hosted acceptance passed under implementation Step 1; see the implementation plan for current catalog progress and evidence. Historical integration evidence does not by itself verify this revision. External schedulers/services are disallowed.
 Last updated: 2026-11-02  
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
 Next phase: [Full application implementation plan](implementation-plan.md)
@@ -280,7 +280,7 @@ Require `conversation_id` for each initial event subscription. This permits moni
 - `include_bot_messages`: default `false`; when enabled, includes other bots only. The app's own bot remains excluded.
 - `actor_user_ids` and `emoji_name`: optional for reaction events.
 
-Each event exposes only filters that it can implement correctly. Reject unknown fields and invalid combinations. For unavailable edit/delete metadata, retain unknown values explicitly rather than fabricating an author, thread, or message text.
+Each event exposes only filters that it can implement correctly. Reject unknown fields and invalid combinations. For unavailable edit/delete metadata, retain unknown values explicitly rather than fabricating an author, thread, or message text. If bot identity cannot be determined, suppress that edit/deletion even with bot opt-in so the app cannot deliver its own activity. Thread-filtered edits/reactions can resolve their source through one bounded live exact-message lookup; no cross-request cache is used.
 
 ### Event payloads
 
@@ -304,7 +304,7 @@ Use a unique stable event ID across retries. Message text remains untrusted data
 3. Send and verify a signed, short-lived callback challenge before releasing Slack data.
 4. Persist the subscription with a deterministic identity derived from principal, callback URL, event name, and canonical JSON arguments.
 5. Return the granted expiration as `refreshBefore`, with `cursor: null` and `truncated: false` for the non-replay profile.
-6. Treat a repeated matching subscribe request as a refresh/upsert, including the supported secret-rotation behavior.
+6. Treat a repeated matching subscribe request as a refresh/upsert, including a 60-second active-key rotation overlap with dual signatures, capped by subscription expiry. Same-key refresh does not extend the overlap.
 7. Stop deliveries at expiration, on unsubscribe, on revoked access, or when the installation is disabled.
 8. Make unsubscribe idempotent and match the authenticated subscription identity; knowledge of a subscription ID grants no authority.
 
@@ -413,5 +413,3 @@ Research was conducted on 2026-11-02. Recheck these sources during implementatio
 - [Conversation discovery](https://docs.slack.dev/reference/methods/conversations.list/), [history](https://docs.slack.dev/reference/methods/conversations.history/), and [current thread reference](https://docs.slack.dev/reference/methods/conversations.replies/). The [older thread reference](https://api.slack.com/methods/conversations.replies) documents the conflicting bot-token limitation.
 - [Slack message posting](https://docs.slack.dev/reference/methods/chat.postMessage/) and [rate-limit clarification](https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps/).
 - [Cloudflare execution context](https://developers.cloudflare.com/workers/runtime-apis/context/): shared `waitUntil()` lifetime and cancellation limits for the accepted bounded execution design.
-
-

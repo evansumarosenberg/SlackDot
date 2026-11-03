@@ -2,13 +2,13 @@ import { App, LogLevel, type Receiver } from '@slack/bolt';
 import { createHmac } from 'node:crypto';
 import { boundedText, Failure, requireConfig, type Env } from '../runtime/config';
 import { equal } from '../runtime/crypto';
-import { normalize, type MessageEvent } from './normalize';
+import { normalize, type SlackEvent } from './normalize';
 import { SLACK_CALL_MS } from '../events/budget';
 
 export const quietLogger = {debug(){}, info(){}, warn(){}, error(){}, setLevel(){}, getLevel(){return LogLevel.ERROR;}, setName(){}};
 export class FetchReceiver implements Receiver {
   app!: App;
-  acceptedEvent: MessageEvent | null = null;
+  acceptedEvent: SlackEvent | null = null;
   init(app: App) { this.app = app; }
   async start() {}
   async stop() {}
@@ -37,7 +37,7 @@ export function createBolt(env: Env, deadline = Infinity) {
   app.use(async ({body}) => { receiver.acceptedEvent=normalize(body, env); });
   return {app, receiver};
 }
-export async function receiveSlack(request: Request, env: Env, now = Date.now(), accepted?: (event:MessageEvent, acceptedAt:number)=>void) {
+export async function receiveSlack(request: Request, env: Env, now = Date.now(), accepted?: (event:SlackEvent, acceptedAt:number)=>void) {
   try {
     requireConfig(env, ['DB','SLACK_SIGNING_SECRET','SLACK_BOT_TOKEN','SLACK_TEAM_ID','SLACK_BOT_USER_ID','SLACK_BOT_ID','SLACK_APP_ID','OWNER_USER_ID']);
     const raw = await boundedText(request, 256*1024);

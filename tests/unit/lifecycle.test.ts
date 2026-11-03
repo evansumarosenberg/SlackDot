@@ -65,12 +65,49 @@ describe('subscription lifecycle',()=>{
     await subscribe(e,'owner',changed,access,callback,3000);expect(spy).toHaveBeenCalledTimes(2);
     const row=sqlite.prepare('SELECT * FROM subscriptions').get() as any;
     expect(row.secret).not.toContain('whsec_');expect(await decrypt(row.secret,e.SUBSCRIPTION_ENCRYPTION_KEY,row.id)).toBe(changed.delivery.secret);
+    expect(await decrypt(row.previous_secret,e.SUBSCRIPTION_ENCRYPTION_KEY,row.id)).toBe(secret);
+    expect(row.previous_secret_expires_at).toBe(63000);
     expect(row.created_at).toBe(1000);expect(count(sqlite)).toBe(1);
+  });
+  it('preserves a rotation overlap without extending it on same-key refresh, then removes the old key',async()=>{
+    const {db,sqlite}=database(),e=env(db),input=subscription();
+    await subscribe(e,'owner',input,access,verified(),1000);
+    const rotated={...input,delivery:{...input.delivery,secret:`whsec_${Buffer.alloc(32,8).toString('base64')}`}};
+    await subscribe(e,'owner',rotated,access,verified(),2000);
+    await subscribe(e,'owner',rotated,access,verified(),3000);
+    expect(sqlite.prepare('SELECT previous_secret_expires_at FROM subscriptions').get()?.previous_secret_expires_at).toBe(62000);
+    await cleanup(e,61999);
+    expect(sqlite.prepare('SELECT previous_secret FROM subscriptions').get()?.previous_secret).toBeTypeOf('string');
+    await cleanup(e,62000);
+    expect(sqlite.prepare('SELECT previous_secret,previous_secret_expires_at FROM subscriptions').get()).toEqual({previous_secret:null,previous_secret_expires_at:null});
+    expect(count(sqlite)).toBe(1);
+  });
+  it('retains only the immediately previous active key and caps overlap to subscription expiry',async()=>{
+    const {db,sqlite}=database(),e=env(db),input=subscription();
+    await subscribe(e,'owner',input,access,verified(),1000);
+    const second={...input,delivery:{...input.delivery,secret:`whsec_${Buffer.alloc(32,8).toString('base64')}`}};
+    await subscribe(e,'owner',second,access,verified(),2000);
+    const third={...input,ttlMs:5000,delivery:{...input.delivery,secret:`whsec_${Buffer.alloc(32,9).toString('base64')}`}};
+    await subscribe(e,'owner',third,access,verified(),3000);
+    const row=sqlite.prepare('SELECT * FROM subscriptions').get() as any;
+    expect(await decrypt(row.previous_secret,e.SUBSCRIPTION_ENCRYPTION_KEY,row.id)).toBe(second.delivery.secret);
+    expect(row.previous_secret_expires_at).toBe(8000);
+    await subscribe(e,'owner',input,access,verified(),8000);
+    expect(sqlite.prepare('SELECT previous_secret,previous_secret_expires_at FROM subscriptions').get()).toEqual({previous_secret:null,previous_secret_expires_at:null});
+  });
+  it('does not replace current or previous signing keys when a rotation challenge fails',async()=>{
+    const {db,sqlite}=database(),e=env(db),input=subscription();
+    await subscribe(e,'owner',input,access,verified(),1000);
+    const before=sqlite.prepare('SELECT secret,secret_hash,previous_secret,previous_secret_expires_at FROM subscriptions').get();
+    const changed={...input,delivery:{...input.delivery,secret:`whsec_${Buffer.alloc(32,8).toString('base64')}`}};
+    const rejected=new CallbackClient('https://receiver.example.com',async()=>Response.json({challenge:'incorrect'}));
+    await expect(subscribe(e,'owner',changed,access,rejected,2000)).rejects.toThrow('challenge_failed');
+    expect(sqlite.prepare('SELECT secret,secret_hash,previous_secret,previous_secret_expires_at FROM subscriptions').get()).toEqual(before);
   });
   it('removes expired and legacy inactive rows in bounded batches, preserving current subscriptions',async()=>{
     const {db,sqlite}=database(),e=env(db);
     const sub=await subscribe(e,'owner',subscription(),access,verified(),1000);
-    for(let index=0;index<105;index++) sqlite.prepare(`INSERT INTO subscriptions SELECT ?,owner,name,args,conversation,thread,callback,secret,secret_hash,verified_at,created_at,?,? FROM subscriptions WHERE id=?`)
+    for(let index=0;index<105;index++) sqlite.prepare(`INSERT INTO subscriptions(id,owner,name,args,conversation,thread,callback,secret,secret_hash,verified_at,created_at,expires_at,active) SELECT ?,owner,name,args,conversation,thread,callback,secret,secret_hash,verified_at,created_at,?,? FROM subscriptions WHERE id=?`)
       .run(`stale-${index}`,index%2?1000:999999, index%2?1:0,sub.id);
     await cleanup(e,2000);expect(count(sqlite)).toBe(6);
     await cleanup(e,2000);expect(count(sqlite)).toBe(1);
@@ -96,6 +133,8 @@ describe('subscription lifecycle',()=>{
       sqlite.exec(readFileSync('drizzle/0002_black_cammi.sql','utf8'));
       expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()).toEqual([{name:'subscriptions'}]);
       expect(sqlite.prepare('SELECT * FROM subscriptions').all()).toEqual(before);
+      sqlite.exec(readFileSync('drizzle/0003_majestic_captain_flint.sql','utf8'));
+      expect(sqlite.prepare('SELECT * FROM subscriptions').all()).toEqual(before.map(row=>({...row,previous_secret:null,previous_secret_expires_at:null})));
     } finally { sqlite.close(); }
   });
   it('guards the application DB interface against operational queries',()=>{

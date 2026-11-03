@@ -23,16 +23,19 @@ export class CallbackClient {
   // Workers fetch requires its runtime receiver; do not invoke it as this.transport.
   constructor(private origins = '', private transport: CallbackFetch = (url,init)=>globalThis.fetch(url,init)) {}
   validate(url: string) { return callbackUrl(url,this.origins); }
-  async post(url: string, secret: string, subscription: string, id: string, body: string, now=Date.now(), deadline=Infinity) {
+  async post(url: string, secret: string, subscription: string, id: string, body: string, now=Date.now(), deadline=Infinity, previousSecret?:string) {
     validateSecret(secret);
+    if(previousSecret) validateSecret(previousSecret);
     if (Buffer.byteLength(body)>262144) throw new Failure('payload_too_large');
     const destination=this.validate(url), signedAt=new Date(now);
     const remaining=deadline-now;
     if(remaining<=0) throw new Failure('execution_deadline');
     try {
+      const signature=new Webhook(secret).sign(id,signedAt,body);
+      const signatures=previousSecret && previousSecret!==secret ? `${signature} ${new Webhook(previousSecret).sign(id,signedAt,body)}` : signature;
       const response=await this.transport(destination,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(Math.max(1,Math.floor(Math.min(Number.isFinite(deadline)?CALLBACK_MS:10000,remaining)))),
         headers:{'Content-Type':'application/json','webhook-id':id,'webhook-timestamp':String(Math.floor(now/1000)),
-          'webhook-signature':new Webhook(secret).sign(id,signedAt,body),'X-MCP-Subscription-Id':subscription},body});
+          'webhook-signature':signatures,'X-MCP-Subscription-Id':subscription},body});
       if (response.status>=300 && response.status<400) { await response.body?.cancel(); throw new Failure('callback_redirect_blocked'); }
       return response;
     } catch(e) { throw e instanceof Failure ? e : new Failure('callback_transport_failed'); }

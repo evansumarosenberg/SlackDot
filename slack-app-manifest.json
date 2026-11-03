@@ -1,7 +1,7 @@
 {
   "display_information": {
     "name": "SlackDot",
-    "description": "Single-dot Slack compatibility prototype",
+    "description": "A Slack bridge for one controlling dot",
     "background_color": "#172033"
   },
   "features": {
@@ -41,7 +41,8 @@
         "message.channels",
         "message.groups",
         "message.im",
-        "app_mention"
+        "reaction_added",
+        "reaction_removed"
       ]
     },
     "org_deploy_enabled": false,

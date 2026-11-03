@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { filterSchema } from '../slack/normalize';
+import { filterSchema, deletedFilterSchema, reactionFilterSchema } from '../slack/normalize';
 import { Failure, requireConfig, type Env } from '../runtime/config';
 import { canonical, encrypt, hash } from '../runtime/crypto';
 import { cleanup, type Subscription } from '../storage';
@@ -7,14 +7,25 @@ import { CallbackClient, validateSecret } from './callback';
 
 const SUBSCRIPTION_LIFETIME_MS = 72 * 60 * 60 * 1000;
 
-export const subscribeSchema=z.object({name:z.literal('slack.message.created'), arguments:filterSchema,
+const subscribeFields={
   delivery:z.object({mode:z.literal('webhook'),url:z.string().url().max(2048),secret:z.string().max(100)}).strict(),
   cursor:z.null().optional(), ttlMs:z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable().optional(),
-  _meta:z.record(z.string(),z.unknown()).optional()}).strict();
+  _meta:z.record(z.string(),z.unknown()).optional()};
+export const subscribeSchema=z.discriminatedUnion('name',[
+  z.object({...subscribeFields,name:z.literal('slack.message.created'),arguments:filterSchema}).strict(),
+  z.object({...subscribeFields,name:z.literal('slack.message.updated'),arguments:filterSchema}).strict(),
+  z.object({...subscribeFields,name:z.literal('slack.message.deleted'),arguments:deletedFilterSchema}).strict(),
+  z.object({...subscribeFields,name:z.literal('slack.reaction.added'),arguments:reactionFilterSchema}).strict(),
+  z.object({...subscribeFields,name:z.literal('slack.reaction.removed'),arguments:reactionFilterSchema}).strict(),
+]);
+const unsubscribeFields={delivery:z.object({mode:z.literal('webhook'),url:z.string().url().max(2048)}).strict(),
+  _meta:z.record(z.string(),z.unknown()).optional()};
 const unsubscribeSchema=z.union([
-  z.object({name:z.literal('slack.message.created'),arguments:filterSchema,
-    delivery:z.object({mode:z.literal('webhook'),url:z.string().url().max(2048)}).strict(),
-    _meta:z.record(z.string(),z.unknown()).optional()}).strict(),
+  z.object({...unsubscribeFields,name:z.literal('slack.message.created'),arguments:filterSchema}).strict(),
+  z.object({...unsubscribeFields,name:z.literal('slack.message.updated'),arguments:filterSchema}).strict(),
+  z.object({...unsubscribeFields,name:z.literal('slack.message.deleted'),arguments:deletedFilterSchema}).strict(),
+  z.object({...unsubscribeFields,name:z.literal('slack.reaction.added'),arguments:reactionFilterSchema}).strict(),
+  z.object({...unsubscribeFields,name:z.literal('slack.reaction.removed'),arguments:reactionFilterSchema}).strict(),
   // Preserve the prototype's ID form for existing callers.
   z.object({id:z.string().max(100),_meta:z.record(z.string(),z.unknown()).optional()}).strict(),
 ]);
@@ -41,10 +52,15 @@ export async function subscribe(env: Env, principal: string, value: unknown, acc
   const secret=await encrypt(input.delivery.secret,env.SUBSCRIPTION_ENCRYPTION_KEY,id);
   await env.DB.prepare(`INSERT INTO subscriptions(id,owner,name,args,conversation,thread,callback,secret,secret_hash,verified_at,created_at,expires_at,active)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET secret=excluded.secret,secret_hash=excluded.secret_hash,
+    previous_secret=CASE WHEN subscriptions.active=1 AND subscriptions.expires_at>? AND subscriptions.secret_hash!=excluded.secret_hash THEN subscriptions.secret
+      WHEN subscriptions.active=1 AND subscriptions.expires_at>? AND subscriptions.previous_secret_expires_at>? THEN subscriptions.previous_secret ELSE NULL END,
+    previous_secret_expires_at=CASE WHEN subscriptions.active=1 AND subscriptions.expires_at>? AND subscriptions.secret_hash!=excluded.secret_hash THEN min(?,excluded.expires_at)
+      WHEN subscriptions.active=1 AND subscriptions.expires_at>? AND subscriptions.previous_secret_expires_at>? THEN min(subscriptions.previous_secret_expires_at,excluded.expires_at) ELSE NULL END,
     verified_at=excluded.verified_at,expires_at=excluded.expires_at,active=1,
     created_at=CASE WHEN subscriptions.active=0 OR subscriptions.expires_at<=? THEN excluded.created_at ELSE subscriptions.created_at END`)
     .bind(id,principal,input.name,args,input.arguments.conversation_id,input.arguments.thread_ts??null,url,secret,secretHash,
-      existing?.active && existing.expires_at>now && existing.secret_hash===secretHash && existing.verified_at>=now-300000 ? existing.verified_at : now,now,expires,now).run();
+      existing?.active && existing.expires_at>now && existing.secret_hash===secretHash && existing.verified_at>=now-300000 ? existing.verified_at : now,now,expires,
+      now,now,now,now,now+60000,now,now,now).run();
   return {id,refreshBefore:new Date(expires).toISOString(),cursor:null,truncated:false};
 }
 export async function unsubscribe(env: Env, principal: string, value: unknown, now=Date.now()) {

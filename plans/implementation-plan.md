@@ -1,6 +1,6 @@
 # SlackDot implementation plan
 
-Status: Step 1 runtime simplification implemented and locally verified; hosted migration and native round-trip acceptance are in progress. Steps 2–4 remain subsequent work.
+Status: Step 1 is implemented, deployed and accepted. Steps 2–3 are implemented and locally verified; their publication/native acceptance and Step 4 handoff are in progress.
 Target: [specification](specification.md)
 Historical evidence: [compatibility results](compatibility-prototype-results.md)
 
@@ -10,7 +10,11 @@ Build a lightweight Slack-to-Dot bridge on the existing ChatGPT Site. Keep one w
 
 The user explicitly accepts possible cross-request duplicate deliveries/notices/writes and interruption that prevents both delivery and feedback. These are accepted simplicity and deployment tradeoffs, not gaps to solve with additional storage or infrastructure.
 
-Version 11 (`05e487b`) successfully deployed the table-independent Worker with environment revision 12; the obsolete delivery secret was removed. The forward migration is the second publication because Sites applies migrations before Worker upload. Local verification: 69 tests, TypeScript checks and Sites build pass; ten built-Worker scenarios cover subscriptions-only storage, bounded delivery, duplication, interruption and setup authorization. Hosted schema and public/private/DM acceptance are pending. No additional retention or diagnostics system is authorized.
+Version 11 (`05e487b`) deployed the table-independent Worker with environment revision 12, removing the obsolete delivery secret. Version 12 (`599e2f6`) then applied the forward migration. Live schema inspection confirms that `subscriptions` is the only application table and all five pre-migration subscription identities survived. No operational payloads were exported. Local Step 1 verification passed 69 tests, TypeScript checks, Sites build and ten built-Worker scenarios. The user authoritatively verified all three native public/private/DM MEMORY replies in Slack; this hosted round-trip acceptance is passed. Dot separately confirmed receipt of all three native events. No additional read-back is required to accept the user's verification.
+
+## Current catalog verification
+
+The expanded implementation passes 165 unit/protocol tests, TypeScript checking and the Sites build. The built catalog smoke exercises all 14 tools and five event types with synthetic outbound services and only the subscriptions table. A full bounded-delivery regression is recorded alongside publication. Review fixes cover subscription recreation races, malformed Slack responses, root-edit/reaction thread resolution, self exclusion with unknown authorship, and the protocol-required 60-second signing-key overlap. The additive key fields remain part of active subscriptions, not operational history. No live renewal experiment was added. The user confirmed Slack's reaction bot-event settings are saved.
 
 ## 2. Implementation sequence
 
@@ -108,4 +112,3 @@ Retain `assistant:write` by explicit user choice. Simple Agent UI features may b
 
 - [Slack event acknowledgment and retries](https://docs.slack.dev/apis/events-api/#responding-to-events): acknowledgment is required within three seconds; retries can occur in later requests.
 - [Workers execution context](https://developers.cloudflare.com/workers/runtime-apis/context/#waituntil): background tasks share a bounded post-response window and unfinished work can be cancelled.
-
