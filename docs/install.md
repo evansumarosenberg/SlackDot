@@ -120,9 +120,15 @@ Set the following using Sites environment tools, preserving the owner's four val
 
 Generate the encryption key once and keep it stable on resume and redeployment. Never replace an existing key just because its value is redacted. Do not print it. The callback allowlist is an exact HTTPS origin, not a wildcard.
 
-Deploy the saved non-MCP version with the updated environment revision. Verify the public identity boundary using `tests/compatibility/hosted-check.mjs`, with its process-local `SLACKDOT_SITE_URL` set to this Site's origin. That test variable is not an application runtime setting. Confirm that forged `/setup` headers do not create an identity and anonymous/forged MCP requests cannot succeed. The script alone does not prove authenticated owner access.
+Deploy the saved non-MCP version with the updated environment revision. Set the process-local `SLACKDOT_SITE_URL` to this Site's origin and run:
 
-After these checks and the genuine signed-in `/setup` identity are established, set `SITES_IDENTITY_VERIFIED=true` and redeploy to apply it. Reopen `/setup` in the owner's signed-in session: required configuration should be present and the Slack connection should return the expected workspace and bot IDs. If authenticated browsing is unavailable to the agent, have the owner open the page and report those non-secret IDs or the displayed error. Recheck anonymous/forged requests after enabling trust. Do not accept successful unauthorized access, or a permanent 503 on every request, as a working boundary.
+```sh
+node tests/compatibility/hosted-check.mjs --pre-publication
+```
+
+That test variable is not an application runtime setting. Pre-publication mode accepts 401/403 rejections, the expected Sites 404 while MCP is unpublished, or 503 while unconfigured. It also checks application health and that forged `/setup` headers do not create an identity. A 404 or 503 does not establish MCP authorization or readiness; the owner check below and strict post-publication checks are still required.
+
+After these checks and the genuine signed-in `/setup` identity are established, set `SITES_IDENTITY_VERIFIED=true` and redeploy to apply it. Reopen `/setup` in the owner's signed-in session: required configuration should be present and the Slack connection should return the expected workspace and bot IDs. If authenticated browsing is unavailable to the agent, have the owner open the page and report those non-secret IDs or the displayed error. Rerun the pre-publication check after enabling trust; MCP remains unpublished at this phase. Do not accept successful unauthorized access, or a permanent 503 on every request, as a working boundary.
 
 **Complete when:** all ten application variables are configured, the environment revision is deployed, the owner can verify the Slack connection, and unauthorized requests remain rejected. No MCP publication is required to use the authenticated setup page.
 
@@ -141,6 +147,7 @@ This is verification of the endpoint, not another event-enablement step. [Slack'
 **Inputs:** working owner authorization and Slack connection, with the Slack endpoint verified.
 
 1. Add `"mcp"` to `.openai/hosting.json` capabilities in the same deployment checkout. Build/package, save and deploy the new source version using the Sites workflow. Preserve the Site ID, database and runtime secrets.
+   With `SLACKDOT_SITE_URL` set to the same Site origin, run `node tests/compatibility/hosted-check.mjs --post-publication`. Both anonymous and forged MCP requests must return 401 or 403. A 404 or 503 now fails. This strict mode is also the default when no mode argument is supplied; passing it does not replace the authenticated discovery and identity checks below.
 2. Use the **Plugin Creator skill's Sites MCP workflow** to connect and verify the SlackDot plugin. Publication provisions the Site's associated ChatGPT plugin; reuse it instead of creating a second plugin package or a generic connector. The [OpenAI MCP guide](https://learn.chatgpt.com/docs/extend/mcp) describes the Site-hosted plugin connection.
 3. Read `get_site` with `include_mcp_connection: true` and retain the returned plugin ID/reference. When installation is needed, use the supported plugin installation/connection flow. A plugin ID alone does not prove connection. Let the owner complete any required consent.
 4. Verify owner-authenticated discovery: **14 tools and five event types**. Call `slack_get_connection_info` and compare the workspace, bot user and bot IDs to phase 3. No Slack write is needed for this check.
