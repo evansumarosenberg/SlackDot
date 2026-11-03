@@ -4,6 +4,10 @@ Evaluation date: 2026-11-02. Status: compatibility feasibility gate passed under
 
 ## Review findings and decisions
 
+### Subscription lifetime follow-up
+
+After the prototype checkpoint, the user accepted documented automatic ChatGPT renewal and explicitly declined a separate live renewal experiment. [OpenAI documents automatic refresh](https://developers.openai.com/plugins/build/mcp-events#refresh-a-subscription), and [AgentMail documents a 72-hour default](https://docs.agentmail.to/integrations/mcp-events#access-and-limits). SlackDot now uses a 72-hour default and maximum grant, honoring shorter requested lifetimes; this change does not adopt AgentMail’s separate 30-day maximum. Existing stored expiration times are unchanged until a successful renewal. Historical 24-hour observations below describe the tested prototype versions and are retained as evidence. No new native renewal observation or subscription mutation is claimed by this change.
+
 ### Bounded-delivery implementation and verification
 
 Clean version 9 is deployed from `d239f07cc67dca026eef912d096a013f244eb0dc`, deployment `appgdep_6ae91f78d4088191b7a247bdcd3e78bb`, successful at 23:40:49.797 UTC with environment revision 11. The final bundle contains no hosted fixture hook or synthetic transport marker. Its rebuilt success and transient-retry smoke checks pass (about 0.3/1.3 seconds), with no manual trigger; all 54 tests and TypeScript pass. Real automatic public/private/DM event runs subsequently passed as recorded below. This clean application source is the evaluated prototype milestone, tagged `compatibility-prototype-v3`; the subsequent documentation commit records the decision and handoff.

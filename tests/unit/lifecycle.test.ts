@@ -14,10 +14,13 @@ const verified=()=>new CallbackClient('https://receiver.example.com',async(_url,
 const count=(sqlite:any,table:string)=>sqlite.prepare(`SELECT count(*) n FROM ${table}`).get().n;
 
 describe('durable event lifecycle',()=>{
-  it.each([undefined,null,1000,172800000])('bounds requested lifetime %s by the server maximum',async(ttlMs)=>{
+  it.each([
+    [undefined,259200000],[null,259200000],[1000,1000],
+    [172800000,172800000],[259200000,259200000],[345600000,259200000],
+  ])('grants requested lifetime %s as %s milliseconds',async(ttlMs,granted)=>{
     const {db,sqlite}=database(), e=env(db);
     const result=await subscribe(e,'owner',{...subscription(),ttlMs},access,verified(),1000);
-    const expires=1000+Math.min(ttlMs??86400000,86400000);
+    const expires=1000+granted!;
     expect(result.refreshBefore).toBe(new Date(expires).toISOString());
     expect(sqlite.prepare('SELECT expires_at FROM subscriptions').get()?.expires_at).toBe(expires);
   });
@@ -40,7 +43,7 @@ describe('durable event lifecycle',()=>{
   it('does not revive pending events when an expired subscription is recreated',async()=>{
     const {db,sqlite}=database(), e=env(db);
     await subscribe(e,'owner',subscription(),access,verified(),1000);await acceptEvent(e,event(),2000);
-    await subscribe(e,'owner',subscription(),access,verified(),86402000);
+    await subscribe(e,'owner',subscription(),access,verified(),259202000);
     expect(sqlite.prepare('SELECT state FROM deliveries').get()?.state).toBe('cancelled');
   });
   it('canonical refresh rotates encrypted secrets and retains a stable identity',async()=>{
@@ -90,7 +93,7 @@ describe('durable event lifecycle',()=>{
   it.each(['expired','revoked'])('stops delivery when %s',async(kind)=>{
     const {db,sqlite}=database(),e=env(db),now=Date.now();await subscribe(e,'owner',subscription(),access,verified(),now);await acceptEvent(e,event(),now);
     const post=vi.fn(async()=>new Response(null,{status:204}));
-    await drain(e,kind==='revoked'?async()=>{throw new Failure('installation_revoked');}:access,new CallbackClient(e.CALLBACK_ALLOWED_ORIGINS,post),()=>now+(kind==='expired'?86400001:0));
+    await drain(e,kind==='revoked'?async()=>{throw new Failure('installation_revoked');}:access,new CallbackClient(e.CALLBACK_ALLOWED_ORIGINS,post),()=>now+(kind==='expired'?259200001:0));
     expect(post).not.toHaveBeenCalled();expect(sqlite.prepare('SELECT state FROM deliveries').get()?.state).toBe(kind==='expired'?'terminal':'cancelled');
   });
 });

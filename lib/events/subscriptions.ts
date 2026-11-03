@@ -5,6 +5,8 @@ import { canonical, encrypt, hash } from '../runtime/crypto';
 import type { Subscription } from '../storage';
 import { CallbackClient, validateSecret } from './callback';
 
+const SUBSCRIPTION_LIFETIME_MS = 72 * 60 * 60 * 1000;
+
 export const subscribeSchema=z.object({name:z.literal('slack.message.created'), arguments:filterSchema,
   delivery:z.object({mode:z.literal('webhook'),url:z.string().url().max(2048),secret:z.string().max(100)}).strict(),
   cursor:z.null().optional(), ttlMs:z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable().optional(),
@@ -34,7 +36,7 @@ export async function subscribe(env: Env, principal: string, value: unknown, acc
     catch(e) { throw new Failure(e instanceof Failure ? e.category : 'challenge_failed'); }
   }
   // A null/no-expiration request still receives our finite maximum lifetime.
-  const expires=now+Math.min(input.ttlMs ?? 86400000,86400000);
+  const expires=now+Math.min(input.ttlMs ?? SUBSCRIPTION_LIFETIME_MS,SUBSCRIPTION_LIFETIME_MS);
   const secret=await encrypt(input.delivery.secret,env.SUBSCRIPTION_ENCRYPTION_KEY,id);
   await env.DB.batch([
     env.DB.prepare(`UPDATE deliveries SET state='cancelled',claim=NULL WHERE subscription_id=? AND state IN ('pending','claimed')

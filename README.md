@@ -24,7 +24,7 @@ The Site identity and MCP/D1 declarations are in .openai/hosting.json. Preserve 
 
 ## Protocol and operating limits
 
-/mcp uses SDK-owned MCP 2026-07-28 HTTP envelopes and headers. The extension methods are events/list, events/subscribe and events/unsubscribe; event arguments require conversation_id and optionally thread_ts. Subscription refresh grants 24 hours and always returns cursor:null. Signed callbacks use Standard Webhooks and a stable eventId. There is no replay.
+/mcp uses SDK-owned MCP 2026-07-28 HTTP envelopes and headers. The extension methods are events/list, events/subscribe and events/unsubscribe; event arguments require conversation_id and optionally thread_ts. Subscription creation/refresh grants 72 hours by default, capped at 72 hours, and honors shorter requested lifetimes. ChatGPT automatically renews subscriptions before the returned refreshBefore deadline. Existing records keep their granted expiration until renewed. Subscription responses always return cursor:null. Signed callbacks use Standard Webhooks and a stable eventId. There is no replay.
 
 slack_send_message requires request_id. Repeating a completed identical request returns stored identifiers; reuse with different arguments fails. In-flight or uncertain writes return ambiguous_write and are never automatically resent, including if Slack succeeded but D1 result persistence failed. Operator reconciliation is required. Completed write records are retained seven days; do not reuse old IDs. Uncertain records are kept for reconciliation.
 
