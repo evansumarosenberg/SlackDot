@@ -28,6 +28,8 @@ This document records the full target behavior. It distinguishes that target fro
 11. Validate the platform with a narrow prototype before implementing the full tool catalog.
 12. Use automatic delivery with bounded retries in the originating request's `waitUntil()` window. Stop on success, exhaustion or permanent failure; attempt one threaded failure notice per invocation when appropriate. Do not persist the outcome. Interruption can prevent both delivery and feedback, and cross-request duplicate suppression is not guaranteed.
 13. Apply YAGNI: configuration and secrets are Sites environment settings; a minimal owner-only setup view is enough. Do not add a configuration GUI, diagnostics dashboard, audit history, maintenance framework, recovery service or speculative configuration options.
+14. The user explicitly accepts possible cross-request duplicate deliveries, notices and writes, and possible loss of both delivery and feedback on interruption, in exchange for subscriptions-only storage, simplicity and convenient Sites deployment. Do not reintroduce operational persistence to eliminate these accepted tradeoffs.
+15. Retain `assistant:write` by explicit user choice for possible future investigation. Agent UI features remain outside this implementation task.
 
 ## 3. Scope
 
@@ -91,7 +93,7 @@ The initial requested scope set is the user's original list plus `channels:read`
 | Scope | Purpose |
 | --- | --- |
 | `app_mentions:read` | Receive explicit mentions of the bot. |
-| `assistant:write` | Retained from the requested scopes; not a dependency of basic messaging. Agent UI features are outside the initial implementation. |
+| `assistant:write` | Explicitly retained for possible future Agent UI investigation; no Agent UI features are in scope for this implementation. |
 | `channels:read` | Discover public channels and inspect their metadata/membership. |
 | `channels:history` | Read messages and receive message events in joined public channels. |
 | `chat:write` | Post messages and modify the bot's own messages. |

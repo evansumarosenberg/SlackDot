@@ -8,6 +8,8 @@ Historical evidence: [compatibility results](compatibility-prototype-results.md)
 
 Build a lightweight Slack-to-Dot bridge on the existing ChatGPT Site. Keep one workspace, one bot, one controlling dot, the native plugin and the existing authorization/security boundaries. Configure through Sites environment variables and secrets. The only application data in D1 is current subscription information.
 
+The user explicitly accepts possible cross-request duplicate deliveries/notices/writes and interruption that prevents both delivery and feedback. These are accepted simplicity and deployment tradeoffs, not gaps to solve with additional storage or infrastructure.
+
 Deployed version 10 (`e9f7587`) has a 72-hour subscription default but still stores operational events, receipts, deliveries, notices and write results. The previous prototype proved the integration with that implementation; it did not prove the subscriptions-only replacement. Removing those tables and their writers is the first task, before adding product features. No additional retention or diagnostics system is authorized.
 
 ## 2. Implementation sequence
@@ -100,7 +102,7 @@ Removed from the prior plan: seven-day operational retention, delivery/notice da
 
 Retained because they implement the requested bridge: active subscriptions, secure callback material, owner authorization, Slack signatures/access checks, bounded retries, best-effort threaded feedback, and the already-agreed Slack tool/event capabilities. The expanded discovery/edit/reaction features are existing product scope, not prerequisites for the storage-removal fix; they can be deferred without holding up that fix.
 
-`assistant:write` is an existing requested scope, but the initial bridge has no Agent UI feature requiring it. It is a candidate to remove from the requested scope set; no change to the user's installed grants is implied by this plan. Do not add more scopes or UI features to justify retaining it.
+Retain `assistant:write` by explicit user choice. Simple Agent UI features may be investigated in the future, but remain outside this implementation task. Do not remove the scope or add UI features as part of this work.
 
 ## Sources for execution limits
 
