@@ -162,6 +162,14 @@ The window is an execution limit, not a promise that delivery or a notice succee
 
 A separate Slack redelivery is a separate invocation and may repeat delivery or feedback. Without shared receipts there is no reliable way to distinguish a lost acknowledgment from an event that never ran. Process verified redeliveries under the same bounded policy rather than dropping them solely because of the retry header. Retain stable logical event IDs so the recipient can recognize duplicates; do not claim recipient deduplication or exactly-once side effects.
 
+### Automatic session status
+
+For `slack.message.created` with a known thread root, the first confirmed subscriber delivery starts one best-effort `agents.sessions.setStatus` call with `processing`. Start it immediately without waiting for other fanout destinations; no status is set for unmatched, failed, or cancelled deliveries, or for edit/delete/reaction events. The call has a two-second maximum and shares the existing 25-second invocation deadline.
+
+After `slack_send_message` confirms a threaded reply, attempt `active` on that same thread. Reads, other tools, top-level posts, uncertain sends and internal delivery-failure notices do not change status. Status failures never change successful delivery/send outcomes, trigger retries, or delete subscriptions. Keep the existing 14 tools, scopes and subscriptions-only storage.
+
+This is an approximate activity indicator, not run tracking. Overlapping events/replies and status failures are accepted limitations; do not add correlation records, locks or a cleanup scheduler. Slack documents a one-hour processing timeout in its [agent development guide](https://docs.slack.dev/ai/developing-agents/#ending-the-processing-state). Workspace support is required; unavailable features degrade to normal delivery/replies without the indicator.
+
 ### Suggested module boundaries
 
 | Module | Responsibility |

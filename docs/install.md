@@ -60,6 +60,8 @@ Keep a concise, non-secret progress note in the installation chat: checkout/comm
 
 Replace `<SITE_HOST>` with the deployed hostname, keeping `https://` and `/slack/events`. Give the owner the resulting manifest or a downloadable file, not a request to edit placeholders themselves. Keep its scopes and bot events unchanged, including `assistant:write`.
 
+Preserve `features.agent_view` and its required `agent_description`. This declares SlackDot as an agent so it can show automatic processing status; the scopes alone do not enable this feature. After import, confirm **Agents → Agent experience** is enabled in the Slack app settings. See [Slack's agent session prerequisites](https://docs.slack.dev/ai/agent-sessions/) and [manifest reference](https://docs.slack.dev/reference/app-manifest/).
+
 Guide the owner to [Slack app management](https://api.slack.com/apps), choose **Create New App → From a manifest**, select their workspace, import the prepared manifest and install the app. The manifest configures event subscriptions; there is no separate instruction to enable the same events again. A populated request URL and enabled events do not yet establish a successful URL challenge. Leave verification until phase 4. If Slack explicitly blocks the initial import on URL verification, use a temporary import copy with the entire `settings.event_subscriptions` object omitted, then restore the full prepared manifest in phase 4. Do not remove only the URL while leaving an incomplete event configuration.
 
 Guide the owner to enter only these values in the **Site's environment settings**:
@@ -185,6 +187,8 @@ Once ready, ask me to send a test DM to the bot. Let that native event trigger t
 ```
 
 **Installation is complete when:** the correct plugin is usable by the Dot, the owner-filtered native automation is saved and enabled, and an actual owner DM produces its reply in Slack. Report these outcomes separately. A successful API call, saved automation or manually requested reply alone does not establish the full round trip. The owner's visual confirmation in Slack is authoritative.
+
+During that DM test, also check the processing indicator: SlackDot attempts to set it after confirmed native event delivery and returns the thread to active after a successful threaded reply. Status updates are best effort and do not determine whether the reply succeeded. If the indicator is absent, check **Agents → Agent experience** in the Slack app settings. For an existing app with this disabled, enable it, then reload Slack before sending a fresh DM; [Slack documents a hard refresh after enabling the agent experience](https://docs.slack.dev/ai/migrating-to-agent-messaging/). This Slack setting does not require a Site redeployment.
 
 ## Resuming or reporting a blocker
 

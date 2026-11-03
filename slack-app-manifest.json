@@ -5,6 +5,9 @@
     "background_color": "#172033"
   },
   "features": {
+    "agent_view": {
+      "agent_description": "Connect your Dot to this Slack workspace to send and receive messages."
+    },
     "bot_user": {
       "display_name": "SlackDot",
       "always_online": false

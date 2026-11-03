@@ -10,7 +10,7 @@ assert.ok(['success','retry','exhaustion','permanent','rate-limit','notice-failu
 const secret=`whsec_${Buffer.alloc(32,7).toString('base64')}`;
 const root=resolve('dist/server'),fixture=JSON.parse(readFileSync('tests/fixtures/mcp-discover.json','utf8'));
 const modules=readdirSync(root,{recursive:true}).filter(f=>String(f).endsWith('.js')).map(String).sort((a,b)=>a==='index.js'?-1:b==='index.js'?1:a.localeCompare(b));
-let verifyCalls=0,callbackCalls=0,noticeCalls=0,ack=false,inflight=0,maxInflight=0;
+let verifyCalls=0,callbackCalls=0,noticeCalls=0,statusCalls=0,ack=false,inflight=0,maxInflight=0;
 const attempts=[];let release;
 const gate=new Promise(resolve=>{release=resolve;});
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -39,6 +39,12 @@ const options={modules:modules.map(file=>({type:'ESModule',path:resolve(root,fil
     assert.equal(url.origin,'https://slack.com');
     if(url.pathname==='/api/auth.test') return Response.json({ok:true,team_id:'TTEST',user_id:'UBOT',bot_id:'BBOT'});
     if(url.pathname==='/api/conversations.info') return Response.json({ok:true,channel:{id:'CTEST',is_member:true}});
+    if(url.pathname==='/api/agents.sessions.setStatus') {
+      const raw=await request.text();
+      const body=request.headers.get('content-type')?.includes('json')?JSON.parse(raw):Object.fromEntries(new URLSearchParams(raw));
+      assert.equal(body.channel_id,'CTEST');assert.equal(body.thread_ts,'1793640001.123456');assert.equal(body.status,'processing');
+      assert.ok(callbackCalls>0);statusCalls++;return Response.json({ok:true,status:'processing',agent_status:'processing'});
+    }
     assert.equal(url.pathname,'/api/chat.postMessage');noticeCalls++;
     const raw=await request.text();
     const body=request.headers.get('content-type')?.includes('json')?JSON.parse(raw):Object.fromEntries(new URLSearchParams(raw));
@@ -98,11 +104,13 @@ try {
     while(Date.now()-started<26000 && (success?callbackCalls<expected || inflight>0:noticeCalls<1)) await pause(50);
     await pause(200);
     assert.equal(callbackCalls,expected);assert.equal(noticeCalls,success?0:1);
+    assert.equal(statusCalls,success?1:0);
     if(scenario==='fanout') assert.ok(maxInflight<=4 && maxInflight>1);
     for(const attempt of attempts) {assert.equal(attempt.raw,attempts[0].raw);assert.equal(attempt.headers['webhook-id'],attempts[0].headers['webhook-id']);}
     if(scenario==='retry') assert.notEqual(attempts[0].headers['webhook-signature'],attempts[1].headers['webhook-signature']);
     if(scenario==='duplicate') {
       await ingress();await pause(300);assert.equal(callbackCalls,2);
+      assert.equal(statusCalls,2);
       assert.equal(attempts[0].headers['webhook-id'],attempts[1].headers['webhook-id']);
     }
     const before=callbackCalls;await ingress(true);await pause(100);assert.equal(callbackCalls,before);

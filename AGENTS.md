@@ -17,7 +17,7 @@ Read [docs/install.md](docs/install.md) before installing SlackDot. It is the si
 
 ## Scope and repository edits
 
-Keep the application entirely on Sites. Store only necessary subscription data; do not add message retention, delivery ledgers, external schedulers, diagnostics dashboards or configuration GUIs. Retain the existing scopes, including `assistant:write`; agent UI features are outside the current implementation scope.
+Keep the application entirely on Sites. Store only necessary subscription data; do not add message retention, delivery ledgers, external schedulers, diagnostics dashboards or configuration GUIs. Retain the existing scopes, including `assistant:write`. Automatic session status is limited to confirmed message-event delivery and successful threaded tool replies; do not add status tools or expand agent UI features beyond the requested scope.
 
 For documentation requests, edit documentation only and do not start an installation, change a live Site or create subscriptions. Preserve the user's edits. Do not commit or push repository changes unless explicitly asked. A requested Site installation uses the Sites-managed source synchronization required for publishing in its deployment checkout; it does not authorize pushing edits to the upstream SlackDot repository.
 

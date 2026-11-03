@@ -19,7 +19,8 @@ async function fixture() {
   const transport=vi.fn(async(_url:string,init:RequestInit)=>{calls.push(init);return new Response(null,{status:204});});
   const callbacks=new CallbackClient(e.CALLBACK_ALLOWED_ORIGINS,transport);
   const eventThread=vi.fn(async(_conversation:string,_messageTs:string,_deadline:number):Promise<string|null>=>null);
-  const deps={access,callbacks,notice,eventThread,clock:()=>now,sleep};
+  const processing=vi.fn(async(_conversation:string,_thread:string,_deadline:number)=>{});
+  const deps={access,callbacks,notice,eventThread,processing,clock:()=>now,sleep};
   return {e,sqlite,sub,message,calls,notice,transport,verified,deps,start,advance:(ms:number)=>{now+=ms;},
     run:(acceptedAt=start)=>deliverEvent(e,message,acceptedAt,deps)};
 }
@@ -269,4 +270,47 @@ it('resolves a root edit for a thread-filtered subscription once, before seriali
 });
 it('rejects malformed/negative Retry-After without inventing a future delay',()=>{
   expect(retryDelay('garbage',0)).toBe(0);expect(retryDelay('-1',0)).toBe(0);
+});
+it('sets processing only after a successful callback, once for concurrent fanout',async()=>{
+  const f=await fixture();
+  await subscribe(f.e,'owner',{...subscription(),delivery:{...subscription().delivery,url:'https://receiver.example.com/second'}},access,f.verified,f.start-1);
+  const releases:(()=>void)[]=[];
+  f.transport.mockImplementation(async()=>{await new Promise<void>(resolve=>releases.push(resolve));return new Response(null,{status:204});});
+  const done=f.run();await vi.waitFor(()=>expect(releases).toHaveLength(2));
+  expect(f.deps.processing).not.toHaveBeenCalled();
+  releases[0]();await vi.waitFor(()=>expect(f.deps.processing).toHaveBeenCalledTimes(1));
+  expect(f.deps.processing).toHaveBeenCalledWith('CTEST',f.message.data.thread_ts,f.start+2000);
+  releases[1]();await done;expect(f.deps.processing).toHaveBeenCalledTimes(1);
+});
+it('keeps status failures separate from successful delivery and subscription state',async()=>{
+  const f=await fixture();f.deps.processing.mockRejectedValue(new Failure('missing_scope'));
+  expect(await f.run()).toEqual({processed:1});
+  expect(f.transport).toHaveBeenCalledTimes(1);expect(f.notice).not.toHaveBeenCalled();
+  expect(f.sqlite.prepare('SELECT id FROM subscriptions').all()).toHaveLength(1);
+});
+it.each([410,503])('does not set processing after delivery failure %s',async(status)=>{
+  const f=await fixture();f.transport.mockResolvedValue(new Response(null,{status}));await f.run();
+  expect(f.deps.processing).not.toHaveBeenCalled();
+});
+it('does not set processing for unmatched, cancelled, or expired delivery',async()=>{
+  const f=await fixture();await unsubscribe(f.e,'owner',{id:f.sub.id});await f.run();
+  expect(f.deps.processing).not.toHaveBeenCalled();
+  f.advance(30000);await f.run();expect(f.deps.processing).not.toHaveBeenCalled();
+});
+it('bounds a late status attempt by the existing invocation deadline',async()=>{
+  const f=await fixture();f.transport.mockImplementation(async()=>{f.advance(24500);return new Response(null,{status:204});});
+  await f.run();expect(f.deps.processing).toHaveBeenCalledWith('CTEST',f.message.data.thread_ts,f.start+25000);
+});
+it('skips processing after the invocation deadline even if acceptance arrives late',async()=>{
+  const f=await fixture();f.transport.mockImplementation(async()=>{f.advance(25000);return new Response(null,{status:204});});
+  await f.run();expect(f.deps.processing).not.toHaveBeenCalled();expect(f.notice).not.toHaveBeenCalled();
+});
+it('does not invent a thread or mark edits as processing',async()=>{
+  const f=await fixture();
+  await deliverEvent(f.e,{...f.message,data:{...f.message.data,thread_ts:null}} as typeof f.message,f.start,f.deps);
+  expect(f.transport).toHaveBeenCalledTimes(1);expect(f.deps.processing).not.toHaveBeenCalled();
+  await subscribe(f.e,'owner',{...subscription(),name:'slack.message.updated'},access,f.verified,f.start);
+  const edited=normalize(event({subtype:'message_changed',event_ts:'1793640010.123456',message:{user:'UPERSON',ts:'1793640000.123456',thread_ts:'1793640000.123456',text:'edited'}}),f.e)!;
+  await deliverEvent(f.e,edited,f.start,f.deps);
+  expect(f.transport).toHaveBeenCalledTimes(2);expect(f.deps.processing).not.toHaveBeenCalled();
 });

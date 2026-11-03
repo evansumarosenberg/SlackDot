@@ -4,6 +4,8 @@ Status: Implementation and live acceptance are complete on version 13: all 14 to
 Target: [specification](specification.md)
 Historical evidence: [compatibility results](compatibility-prototype-results.md)
 
+November 3 follow-up: implement automatic agent session status, retaining the 14-tool catalog. Confirmed message-created delivery attempts `processing` once per invocation; a successful threaded `slack_send_message` attempts `active`. Both status writes are bounded and best effort, with no stored state or retries. Concurrent status overwrites are accepted, and Slack's documented one-hour processing timeout handles stale status. Local validation passed 197 tests, type checks, the Sites build, catalog integration (including processing/active transitions), and fanout/permanent-failure Worker scenarios. The deployed app continued replying, but its Agent experience setting was disabled. Enabled and saved that setting, and added `features.agent_view` plus installation guidance for future installs. Hosted visual verification after reloading Slack remains pending.
+
 ## 1. Goal and current gap
 
 Build a lightweight Slack-to-Dot bridge on the existing ChatGPT Site. Keep one workspace, one bot, one controlling dot, the native plugin and the existing authorization/security boundaries. Configure through Sites environment variables and secrets. The only application data in D1 is current subscription information.

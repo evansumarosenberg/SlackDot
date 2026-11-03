@@ -7,6 +7,7 @@ import { SlackService, sendSchema, threadSchema, conversationSchema, listConvers
   userResultSchema, targetResultSchema, reactionResultSchema, reactionsResultSchema } from '../slack/service';
 import { eventDefinitions, eventNames } from '../slack/normalize';
 import { subscribe, unsubscribe } from '../events/subscriptions';
+import { setSessionStatus } from '../slack/session-status';
 
 const objectResult=z.record(z.string(),z.unknown());
 async function tool(operation:()=>Promise<Record<string,unknown>>) {
@@ -27,9 +28,13 @@ export function server(env: Env, principal: string) {
   mcp.registerTool('slack_get_thread',{description:'Read one page of a Slack thread. Support depends on the installed bot token; errors never imply a complete thread.',inputSchema:threadSchema,
     outputSchema:messagePageSchema,
     annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:true}},(input)=>tool(()=>slack().thread(input)));
-  mcp.registerTool('slack_send_message',{description:'Post once as the bot. Repeated calls can create duplicates; request_id is accepted for compatibility only and is not stored. On ambiguous_write, inspect Slack before deciding whether to resend.',inputSchema:sendSchema,
+  mcp.registerTool('slack_send_message',{description:'Post once as the bot. A confirmed threaded reply also attempts to mark that Slack agent session active; status failure does not fail the send. Repeated calls can create duplicates; request_id is accepted for compatibility only and is not stored. On ambiguous_write, inspect Slack before deciding whether to resend.',inputSchema:sendSchema,
     outputSchema:z.object({conversation_id:z.string(),message_ts:z.string(),thread_ts:z.string().nullable()}),
-    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true}},(input)=>tool(()=>slack().send(input,principal)));
+    annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true}},(input)=>tool(async()=>{
+      const result=await slack().send(input,principal);
+      if(input.thread_ts) await setSessionStatus(env,input.conversation_id,input.thread_ts,'active');
+      return result;
+    }));
   mcp.registerTool('slack_list_conversations',{description:'Read one page of joined public/private channels and bot one-to-one DMs. Filtering can leave an empty page with a continuation cursor; follow that cursor to continue.',inputSchema:listConversationsSchema,
     outputSchema:z.object({conversations:z.array(conversationResultSchema).max(100),next_cursor:z.string().nullable(),complete:z.boolean()}).strict(),
     annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:true}},input=>tool(()=>slack().conversations(input)));

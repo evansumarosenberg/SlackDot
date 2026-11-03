@@ -2,15 +2,17 @@ import { Failure, type Env } from '../runtime/config';
 import { decrypt } from '../runtime/crypto';
 import { cleanup, type Subscription } from '../storage';
 import { SlackService } from '../slack/service';
+import { setSessionStatus } from '../slack/session-status';
 import { matchesEvent, timestamp, type SlackEvent } from '../slack/normalize';
 import { CallbackClient } from './callback';
-import { DELIVERY_MS, NOTICE_MS, MAX_ATTEMPTS, MIN_ATTEMPT_MS, retryDelay } from './budget';
+import { DELIVERY_MS, NOTICE_MS, MAX_ATTEMPTS, MIN_ATTEMPT_MS, SLACK_CALL_MS, retryDelay } from './budget';
 
 export interface DeliveryDependencies {
   access?: (conversation:string, deadline:number)=>Promise<void>;
   callbacks?: CallbackClient;
   notice?: (event:SlackEvent,text:string,deadline:number)=>Promise<unknown>;
   eventThread?: (conversation:string,messageTs:string,deadline:number)=>Promise<string|null>;
+  processing?: (conversation:string,thread:string,deadline:number)=>Promise<void>;
   clock?: ()=>number;
   sleep?: (ms:number)=>Promise<void>;
 }
@@ -50,6 +52,7 @@ export async function deliverEvent(env:Env,event:SlackEvent,acceptedAt:number,de
   };
   let index=0;
   const outcomes:Outcome[]=[];
+  let processing:Promise<void>|undefined;
 
   async function run(id:string):Promise<Outcome> {
     let attempts=0;
@@ -73,7 +76,18 @@ export async function deliverEvent(env:Env,event:SlackEvent,acceptedAt:number,de
         requestedDelay=retryDelay(response.headers.get('retry-after'),clock());
         const status=response.status;
         await response.body?.cancel();
-        if(response.ok) return result('delivered');
+        if(response.ok) {
+          if(!processing && event.name==='slack.message.created' && timestamp.safeParse(event.data.thread_ts).success && clock()<noticeDeadline) {
+            const update=deps.processing??((conversation,thread,end)=>setSessionStatus(env,conversation,thread,'processing',end));
+            // Start on the first confirmed delivery, not after slower fanout
+            // destinations finish. One attempt per invocation, within 25 seconds.
+            processing=(async()=>{
+              try {await update(event.data.conversation_id,event.data.thread_ts!,Math.min(noticeDeadline,clock()+SLACK_CALL_MS));}
+              catch { /* Status failure must never cause callback redelivery. */ }
+            })();
+          }
+          return result('delivered');
+        }
         if(status>=400&&status<500&&status!==429&&status!==408) return result('failed');
       } catch(e) {
         const reason=category(e);
@@ -96,6 +110,7 @@ export async function deliverEvent(env:Env,event:SlackEvent,acceptedAt:number,de
   // All callbacks share one deadline and at most four run concurrently. A storage
   // failure loses this invocation; there is deliberately no later recovery job.
   await Promise.all(Array.from({length:Math.min(4,rows.results.length)},worker));
+  await processing;
   const processed=outcomes.length;
   if(clock()>=noticeDeadline || outcomes.some(result=>result.state==='delivered')) return {processed};
   const thread=event.data.thread_ts;

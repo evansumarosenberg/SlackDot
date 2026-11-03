@@ -10,7 +10,7 @@ const modules=readdirSync(root,{recursive:true}).filter(f=>String(f).endsWith('.
 const secret=`whsec_${Buffer.alloc(32,7).toString('base64')}`,parent='1793640000.123456',reply='1793640001.123456';
 const own={ts:reply,thread_ts:parent,user:'UBOT',bot_id:'BBOT',app_id:'ATEST',text:'synthetic bot reply'};
 const human={ts:parent,user:'UPERSON',text:'synthetic parent'};
-const observed=[],methods=[];let ack=false,reaction=false,deleted=false;
+const observed=[],methods=[],statuses=[];let ack=false,reaction=false,deleted=false;
 const runtime=new Miniflare({modules:modules.map(file=>({type:'ESModule',path:resolve(root,file)})),modulesRoot:root,
   compatibilityDate:'2026-05-15',compatibilityFlags:['nodejs_compat'],d1Databases:['DB'],d1Persist:resolve('.wrangler/smoke',crypto.randomUUID()),
   assets:{directory:resolve('dist/client'),routerConfig:{has_user_worker:true}},
@@ -38,6 +38,11 @@ const runtime=new Miniflare({modules:modules.map(file=>({type:'ESModule',path:re
       case 'chat.postMessage': assert.equal(body.thread_ts,parent);return Response.json({ok:true,channel:'CTEST',ts:reply});
       case 'chat.update': assert.equal(body.ts,reply);own.text=body.text;return Response.json({ok:true,channel:'CTEST',ts:reply});
       case 'chat.delete': assert.equal(body.ts,reply);deleted=true;return Response.json({ok:true,channel:'CTEST',ts:reply});
+      case 'agents.sessions.setStatus':
+        assert.equal(body.channel_id,'CTEST');assert.equal(body.thread_ts,parent);
+        if(body.status==='processing')assert.ok(observed.some(event=>event.name==='slack.message.created'));
+        else {assert.equal(body.status,'active');assert.ok(methods.includes('chat.postMessage'));}
+        statuses.push(body.status);return Response.json({ok:true,agent_status:body.status,status:body.status});
       case 'reactions.get': return Response.json({ok:true,type:'message',channel:'CTEST',message:{...(body.timestamp===reply?own:human),reactions:reaction?[{name:'eyes',count:1,users:['UBOT']}]:[]}});
       case 'reactions.add': if(reaction)return Response.json({ok:false,error:'already_reacted'});reaction=true;return Response.json({ok:true});
       case 'reactions.remove': if(!reaction)return Response.json({ok:false,error:'no_reaction'});reaction=false;return Response.json({ok:true});
@@ -85,10 +90,17 @@ try {
     assert.equal(response.status,200);assert.ok(Date.now()-started<3000);
     while(observed.at(-1)?.name!==name && Date.now()-started<3000)await new Promise(resolve=>setTimeout(resolve,20));
     assert.equal(observed.at(-1)?.name,name);
+    if(name==='slack.message.created') {
+      while(!statuses.includes('processing') && Date.now()-started<3000)await new Promise(resolve=>setTimeout(resolve,20));
+      assert.deepEqual(statuses,['active','processing']);
+      await call('slack_send_message',{conversation_id:'CTEST',thread_ts:parent,text:'synthetic completed reply'});
+      assert.deepEqual(statuses,['active','processing','active']);
+    }
     if(name.startsWith('slack.reaction'))assert.equal(observed.at(-1).data.thread_ts,parent);
     await rpc('events/unsubscribe',{id:sub.id});
   }
   await call('slack_delete_message',target);assert.equal(called.size,14);
+  assert.deepEqual(statuses,['active','processing','active']);
   assert.equal(observed.length,5);assert.equal((await db.prepare('SELECT count(*) n FROM subscriptions').first()).n,0);
   const tables=(await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all()).results.map(r=>r.name);
   assert.deepEqual(tables,['subscriptions']);
