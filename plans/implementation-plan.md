@@ -1,6 +1,6 @@
 # SlackDot implementation plan
 
-Status: Steps 1–3 are implemented and deployed on version 13. Steps 1–2 hosted acceptance passed, including all 14 tools. The five-event catalog is locally verified; live checks of edit/delete/reaction events remain. Step 4 documentation is updated; final acceptance awaits those event checks.
+Status: Steps 1–3 are implemented and deployed on version 13. All 14 tools and all five event types have passed live acceptance. Step 4 documentation is updated; only cleanup of the four temporary event-test automations remains before closing the handoff.
 Target: [specification](specification.md)
 Historical evidence: [compatibility results](compatibility-prototype-results.md)
 
@@ -22,7 +22,11 @@ Version 13 deployed source `0356845bc09dd62a843af8ef6894db511cb3cce5` via deploy
 
 All 14 tools passed through Dot on version 13. Identity matched the configured workspace and both bot IDs. Bounded conversation discovery correctly returned an empty filtered page with a continuation cursor; user discovery returned 10 profiles with continuation. Conversation/user detail, existing-DM retrieval (without a greeting), and public history passed. Synthetic bot fixture `1793674329.662129` passed send, thread read, update/readback, reaction add/read, reaction remove/readback, and deletion with exact-timestamp absence check. Cleanup is complete. The user independently and authoritatively verified the message and reaction sequence in Slack. Existing automations, human messages and previous test threads were unchanged. No further verification of these tool results is required.
 
-Remaining live event acceptance: message updates, message deletions, reaction additions and reaction removals. Use one new human-authored synthetic fixture, temporary native subscriptions with private ChatGPT notifications only, then pause/remove only those temporary subscriptions. Preserve the three existing conversation subscriptions and the previously paused automation. Do not use bot-authored edits/deletions as event fixtures: self activity is intentionally excluded.
+### Live event acceptance — November 2, 2026
+
+Dot reported matching native deliveries for all four remaining types on human-authored synthetic fixture `1793674681.880999` in the public test channel: `slack.message.updated`, `slack.message.deleted`, `slack.reaction.added` and `slack.reaction.removed`. Updated-message author/editor matched the test user. Both reaction events identified that user as actor and reported `eyes`. Updates and reactions reported the exact root thread; deletion correctly reported `thread_ts:null`, retained its known author, and did not invent an actor. All reports came from native event payloads, with no Slack writes or subscription changes by the automations. Together with the accepted public/private/DM created-message tests, all five event types have passed native acceptance.
+
+Dot created exactly four temporary automations and verified their saved instructions. Native creation accepted the requested filters; listing did not independently expose trigger fields for readback. The edit test used sender/thread filters; reactions used actor/emoji/thread filters; deletion used sender/conversation filters and an exact-message guard. Cleanup remains: pause/remove only these four temporary automations, preserve the three original conversation subscriptions and the earlier paused thread-filtered automation, and reconcile that none of the four test automations remains enabled. No further event actions or Slack messages are needed.
 
 ## 2. Implementation sequence
 
