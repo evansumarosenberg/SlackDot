@@ -164,6 +164,8 @@ A separate Slack redelivery is a separate invocation. Atomically claim each matc
 
 ### Automatic session status
 
+Gate both automatic `agents.sessions.setStatus` calls with `SLACK_SESSION_STATUS_ENABLED`: `1` enables them, `0` disables them, and other explicit values disable them. An absent value defaults to enabled for existing installations. The installation agent creates this non-secret variable with value `1` when absent and preserves existing preferences. Applying a changed Site environment value requires redeployment. The toggle has no effect on callback delivery, message writes or deduplication; disabling it does not clear an already-set status.
+
 For `slack.message.created` with a known thread root, the first confirmed subscriber delivery starts one best-effort `agents.sessions.setStatus` call with `processing`. Start it immediately without waiting for other fanout destinations; no status is set for unmatched, failed, or cancelled deliveries, or for edit/delete/reaction events. The call has a two-second maximum and shares the existing 25-second invocation deadline.
 
 After `slack_send_message` confirms a threaded reply, attempt `active` on that same thread. Reads, other tools, top-level posts, uncertain sends and internal delivery-failure notices do not change status. Status failures never change successful delivery/send outcomes, trigger retries, or delete subscriptions. Suppressed duplicate deliveries do not reset processing status. Keep the existing 14 tools and scopes; status writes add no storage.

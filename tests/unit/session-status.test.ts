@@ -12,10 +12,29 @@ beforeEach(()=>{
   mocks.createBolt.mockReturnValue({app:{client:{agents:{sessions:{setStatus:mocks.status}}}}});
   mocks.status.mockResolvedValue({ok:true,agent_status:'active'});
 });
-async function call(name:string,args:Record<string,unknown>) {
+async function call(name:string,args:Record<string,unknown>,config=e) {
   const request=new Request('https://site.example/mcp',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json','Mcp-Method':'tools/call','Mcp-Name':name,'MCP-Protocol-Version':'2026-07-28','oai-authenticated-user-id':'owner'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:args,_meta:{'io.modelcontextprotocol/protocolVersion':'2026-07-28','io.modelcontextprotocol/clientInfo':{name:'test',version:'1'},'io.modelcontextprotocol/clientCapabilities':{}}}})});
-  return await (await handleMcp(request,e)).json() as any;
+  return await (await handleMcp(request,config)).json() as any;
 }
+it.each(['0','false','','invalid'])('skips both status calls without creating a client when configured as %j',async(value)=>{
+  const disabled={...e,SLACK_SESSION_STATUS_ENABLED:value};
+  await setSessionStatus(disabled,'CTEST',target.thread_ts,'processing');
+  await setSessionStatus(disabled,'CTEST',target.thread_ts,'active');
+  expect(mocks.createBolt).not.toHaveBeenCalled();expect(mocks.status).not.toHaveBeenCalled();
+});
+it('preserves enabled behavior when the variable is absent on an existing installation',async()=>{
+  const legacy={...e};delete legacy.SLACK_SESSION_STATUS_ENABLED;
+  await setSessionStatus(legacy,'CTEST',target.thread_ts,'processing');
+  await setSessionStatus(legacy,'CTEST',target.thread_ts,'active');
+  expect(mocks.status.mock.calls.map(([args])=>args.status)).toEqual(['processing','active']);
+});
+it('still sends a threaded reply successfully when status calls are disabled',async()=>{
+  const result={...target,message_ts:'1793640001.123456'};
+  const send=vi.spyOn(SlackService.prototype,'send').mockResolvedValue(result);
+  const response=await call('slack_send_message',{...target,text:'Reply'},{...e,SLACK_SESSION_STATUS_ENABLED:'0'});
+  expect(response.result.structuredContent).toEqual(result);expect(send).toHaveBeenCalledTimes(1);
+  expect(mocks.status).not.toHaveBeenCalled();
+});
 it('uses a single bounded SDK call with only the target and lifecycle status',async()=>{
   vi.spyOn(Date,'now').mockReturnValue(10000);
   await setSessionStatus(e,target.conversation_id,target.thread_ts,'processing',15000);

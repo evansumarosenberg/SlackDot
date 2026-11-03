@@ -20,7 +20,7 @@ ChatGPT Work's cloud browser is separate from the owner's local browser and does
 | Slack Request URL verification | Guide verification after configuration is deployed | Owner completes the challenge in Slack app settings and reports verified status or the error |
 | Plugin consent and native automation | Verify the plugin in the target ChatGPT context | Owner connects the plugin and gives the phase 6 prompt to the intended Dot |
 
-The four owner-entered environment variables remain the same in every session. These handoffs do not require the owner to configure the other six variables. Never request cookies, passwords, access tokens or an environment export in chat. The Site identity and connection IDs are non-secret results, not credentials that bypass authentication.
+The four owner-entered environment variables remain the same in every session. The installation agent configures all remaining variables, including the status toggle. Never request cookies, passwords, access tokens or an environment export in chat. The Site identity and connection IDs are non-secret results, not credentials that bypass authentication.
 
 If a required secure action cannot be performed in the current session, preserve completed work and hand off at that phase with the non-secret progress note below. Do not recreate the Site or copy secrets into the handoff. Plugin connections must be checked in the receiving session; they are not proven by a connection in the installation session.
 
@@ -121,6 +121,9 @@ Set the following using Sites environment tools, preserving the owner's four val
 | `SUBSCRIPTION_ENCRYPTION_KEY` | 32 cryptographically random bytes encoded as base64, saved as a secret |
 | `CALLBACK_ALLOWED_ORIGINS` | `https://connectors.api.openai.com` |
 | `SITES_IDENTITY_VERIFIED` | Initially `false`; enable as described below |
+| `SLACK_SESSION_STATUS_ENABLED` | Set automatically to `1` (enabled) when absent; preserve an existing owner-selected value |
+
+`SLACK_SESSION_STATUS_ENABLED` controls both automatic `agents.sessions.setStatus` calls: processing after event delivery and active after a threaded reply. Create it as a non-secret environment variable without asking the owner to enter it. To disable these calls later, set it to `0` in Site environment settings and redeploy a saved version to apply the new environment revision. Use only `1` or `0`; other explicit values disable calls. If absent on an older installation, the runtime defaults to enabled for backward compatibility. Disabling status calls does not affect event delivery, replies, or deduplication, and does not clear a status already set in Slack; an existing processing status is left to Slack's timeout.
 
 Generate the encryption key once and keep it stable on resume and redeployment. Never replace an existing key just because its value is redacted. Do not print it. The callback allowlist is an exact HTTPS origin, not a wildcard.
 
@@ -134,7 +137,7 @@ That test variable is not an application runtime setting. Pre-publication mode a
 
 After these checks and the genuine signed-in `/setup` identity are established, set `SITES_IDENTITY_VERIFIED=true` and redeploy to apply it. Reopen `/setup` in the owner's signed-in session: required configuration should be present and the Slack connection should return the expected workspace and bot IDs. If authenticated browsing is unavailable to the agent, have the owner open the page and report those non-secret IDs or the displayed error. Rerun the pre-publication check after enabling trust; MCP remains unpublished at this phase. Do not accept successful unauthorized access, or a permanent 503 on every request, as a working boundary.
 
-**Complete when:** all ten application variables are configured, the environment revision is deployed, the owner can verify the Slack connection, and unauthorized requests remain rejected. No MCP publication is required to use the authenticated setup page.
+**Complete when:** all eleven application variables are configured, the environment revision is deployed, the owner can verify the Slack connection, and unauthorized requests remain rejected. No MCP publication is required to use the authenticated setup page.
 
 ## 4. Complete Slack URL verification
 
@@ -190,7 +193,7 @@ Once ready, ask me to send a test DM to the bot. Let that native event trigger t
 
 **Installation is complete when:** the correct plugin is usable by the Dot, the owner-filtered native automation is saved and enabled, and an actual owner DM produces its reply in Slack. Report these outcomes separately. A successful API call, saved automation or manually requested reply alone does not establish the full round trip. The owner's visual confirmation in Slack is authoritative.
 
-During that DM test, also check the processing indicator: SlackDot attempts to set it after confirmed native event delivery and returns the thread to active after a successful threaded reply. Status updates are best effort and do not determine whether the reply succeeded. If the indicator is absent, check **Agents → Agent experience** in the Slack app settings. For an existing app with this disabled, enable it, then reload Slack before sending a fresh DM; [Slack documents a hard refresh after enabling the agent experience](https://docs.slack.dev/ai/migrating-to-agent-messaging/). This Slack setting does not require a Site redeployment.
+When `SLACK_SESSION_STATUS_ENABLED=1`, also check the processing indicator during that DM test: SlackDot attempts to set it after confirmed native event delivery and returns the thread to active after a successful threaded reply. Status updates are best effort and do not determine whether the reply succeeded. If the indicator is absent, check **Agents → Agent experience** in the Slack app settings. For an existing app with this disabled, enable it, then reload Slack before sending a fresh DM; [Slack documents a hard refresh after enabling the agent experience](https://docs.slack.dev/ai/migrating-to-agent-messaging/). This Slack setting does not require a Site redeployment.
 
 ## Resuming or reporting a blocker
 

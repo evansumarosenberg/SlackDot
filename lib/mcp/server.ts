@@ -28,7 +28,7 @@ export function server(env: Env, principal: string) {
   mcp.registerTool('slack_get_thread',{description:'Read one page of a Slack thread. Support depends on the installed bot token; errors never imply a complete thread.',inputSchema:threadSchema,
     outputSchema:messagePageSchema,
     annotations:{readOnlyHint:true,destructiveHint:false,openWorldHint:true}},(input)=>tool(()=>slack().thread(input)));
-  mcp.registerTool('slack_send_message',{description:'Post once as the bot. A confirmed threaded reply also attempts to mark that Slack agent session active; status failure does not fail the send. Repeated calls can create duplicates; request_id is accepted for compatibility only and is not stored. On ambiguous_write, inspect Slack before deciding whether to resend.',inputSchema:sendSchema,
+  mcp.registerTool('slack_send_message',{description:'Post once as the bot. When session status is enabled, a confirmed threaded reply also attempts to mark that Slack agent session active; status failure does not fail the send. Repeated calls can create duplicates; request_id is accepted for compatibility only and is not stored. On ambiguous_write, inspect Slack before deciding whether to resend.',inputSchema:sendSchema,
     outputSchema:z.object({conversation_id:z.string(),message_ts:z.string(),thread_ts:z.string().nullable()}),
     annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:true}},(input)=>tool(async()=>{
       const result=await slack().send(input,principal);

@@ -11,10 +11,11 @@ const secret=`whsec_${Buffer.alloc(32,7).toString('base64')}`,parent='1793640000
 const own={ts:reply,thread_ts:parent,user:'UBOT',bot_id:'BBOT',app_id:'ATEST',text:'synthetic bot reply'};
 const human={ts:parent,user:'UPERSON',text:'synthetic parent'};
 const observed=[],methods=[],statuses=[];let ack=false,reaction=false,deleted=false;
+const statusEnabled=process.argv.includes('--status-disabled')?'0':'1';
 const runtime=new Miniflare({modules:modules.map(file=>({type:'ESModule',path:resolve(root,file)})),modulesRoot:root,
   compatibilityDate:'2026-05-15',compatibilityFlags:['nodejs_compat'],d1Databases:['DB'],d1Persist:resolve('.wrangler/smoke',crypto.randomUUID()),
   assets:{directory:resolve('dist/client'),routerConfig:{has_user_worker:true}},
-  bindings:{OWNER_USER_ID:'owner',SITES_IDENTITY_VERIFIED:'true',SLACK_BOT_TOKEN:'synthetic-token',SLACK_SIGNING_SECRET:'synthetic-signing-secret',SLACK_TEAM_ID:'TTEST',SLACK_BOT_ID:'BBOT',SLACK_BOT_USER_ID:'UBOT',SLACK_APP_ID:'ATEST',SUBSCRIPTION_ENCRYPTION_KEY:Buffer.alloc(32,5).toString('base64'),CALLBACK_ALLOWED_ORIGINS:'https://receiver.example.com'},
+  bindings:{SLACK_SESSION_STATUS_ENABLED:statusEnabled,OWNER_USER_ID:'owner',SITES_IDENTITY_VERIFIED:'true',SLACK_BOT_TOKEN:'synthetic-token',SLACK_SIGNING_SECRET:'synthetic-signing-secret',SLACK_TEAM_ID:'TTEST',SLACK_BOT_ID:'BBOT',SLACK_BOT_USER_ID:'UBOT',SLACK_APP_ID:'ATEST',SUBSCRIPTION_ENCRYPTION_KEY:Buffer.alloc(32,5).toString('base64'),CALLBACK_ALLOWED_ORIGINS:'https://receiver.example.com'},
   outboundService:async request=>{
     const url=new URL(request.url),raw=await request.text();
     if(url.origin==='https://receiver.example.com') {
@@ -91,16 +92,16 @@ try {
     while(observed.at(-1)?.name!==name && Date.now()-started<3000)await new Promise(resolve=>setTimeout(resolve,20));
     assert.equal(observed.at(-1)?.name,name);
     if(name==='slack.message.created') {
-      while(!statuses.includes('processing') && Date.now()-started<3000)await new Promise(resolve=>setTimeout(resolve,20));
-      assert.deepEqual(statuses,['active','processing']);
+      while(statusEnabled==='1' && !statuses.includes('processing') && Date.now()-started<3000)await new Promise(resolve=>setTimeout(resolve,20));
+      assert.deepEqual(statuses,statusEnabled==='1'?['active','processing']:[]);
       await call('slack_send_message',{conversation_id:'CTEST',thread_ts:parent,text:'synthetic completed reply'});
-      assert.deepEqual(statuses,['active','processing','active']);
+      assert.deepEqual(statuses,statusEnabled==='1'?['active','processing','active']:[]);
     }
     if(name.startsWith('slack.reaction'))assert.equal(observed.at(-1).data.thread_ts,parent);
     await rpc('events/unsubscribe',{id:sub.id});
   }
   await call('slack_delete_message',target);assert.equal(called.size,14);
-  assert.deepEqual(statuses,['active','processing','active']);
+  assert.deepEqual(statuses,statusEnabled==='1'?['active','processing','active']:[]);
   assert.equal(observed.length,5);assert.equal((await db.prepare('SELECT count(*) n FROM subscriptions').first()).n,0);
   const tables=(await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'").all()).results.map(r=>r.name);
   assert.deepEqual(tables,['subscriptions','event_dedup']);

@@ -6,6 +6,7 @@ export interface Env {
   SLACK_BOT_USER_ID: string;
   SLACK_BOT_ID: string;
   SLACK_APP_ID: string;
+  SLACK_SESSION_STATUS_ENABLED?: string;
   OWNER_USER_ID: string;
   SUBSCRIPTION_ENCRYPTION_KEY: string;
   CALLBACK_ALLOWED_ORIGINS: string;
