@@ -8,7 +8,7 @@ Start with a private conversation: DM your SlackDot bot, and your Dot replies in
 
 ## Install
 
-Give your Dot the prompt below with the Sites plugin available. It will deploy SlackDot and guide you through the manual setup. You will need permission to install a Slack app in your workspace.
+Give your Dot the prompt below with the Sites and Plugin Creator plugins available. It will deploy SlackDot and guide you through the manual setup. You will need permission to install a Slack app in your workspace.
 
 ```text
 Read https://github.com/evansumarosenberg/SlackDot/blob/master/README.md and follow its installation instructions to set up SlackDot for me.
@@ -51,7 +51,7 @@ Redeploy to apply the settings, then confirm owner access and the Slack connecti
 
 ### 4. Connect the plugin
 
-Help the owner install/connect the SlackDot plugin in ChatGPT, then verify its workspace and bot identities.
+Use the Plugin Creator skill to connect and verify the SlackDot plugin created during Site deployment. Verify that its tools are available and its workspace and bot identities match the configured Slack installation.
 
 ### 5. Set up replies to the owner's DMs
 
