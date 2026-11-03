@@ -13,7 +13,7 @@ export type MessagePayload = z.infer<typeof payloadSchema>;
 export interface MessageEvent { eventId: string; name: 'slack.message.created'; timestamp: string; data: MessagePayload; cursor: null }
 export function normalize(body: Record<string, any>, env: Env): MessageEvent | null {
   const e = body.event;
-  if (!e || !['message', 'app_mention'].includes(e.type)) return null;
+  if (!e || e.type !== 'message') return null;
   if (e.subtype && !['bot_message', 'file_share', 'thread_broadcast'].includes(e.subtype)) return null;
   if (e.hidden || e.user === env.SLACK_BOT_USER_ID || e.bot_id === env.SLACK_BOT_ID || e.app_id === env.SLACK_APP_ID) return null;
   if (!conversationId.safeParse(e.channel).success || !timestamp.safeParse(e.ts).success) return null;
@@ -23,6 +23,6 @@ export function normalize(body: Record<string, any>, env: Env): MessageEvent | n
   const data = payloadSchema.parse({workspace_id:env.SLACK_TEAM_ID, conversation_id:e.channel,
     message_ts:e.ts, thread_ts:e.thread_ts ?? e.ts, author_id:e.user ?? null,
     text:fullText.slice(0,4000), truncated:fullText.length > 4000,
-    is_bot:Boolean(e.bot_id), mentions_bot:e.type === 'app_mention' || fullText.includes(`<@${env.SLACK_BOT_USER_ID}>`)});
+    is_bot:Boolean(e.bot_id), mentions_bot:fullText.includes(`<@${env.SLACK_BOT_USER_ID}>`)});
   return {eventId:`evt_${hash(`${env.SLACK_TEAM_ID}:${e.channel}:${e.ts}`)}`, name:'slack.message.created', timestamp:new Date(occurrence).toISOString(), data, cursor:null};
 }

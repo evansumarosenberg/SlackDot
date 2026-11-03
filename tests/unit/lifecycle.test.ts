@@ -1,50 +1,59 @@
 import { describe,it,expect,vi } from 'vitest';
 import { createHmac } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
 import { database } from '../support/database';
 import { env,event,secret,subscription,access } from '../support/fixtures';
 import { CallbackClient, callbackUrl, validateSecret } from '../../lib/events/callback';
 import { subscribe,unsubscribe } from '../../lib/events/subscriptions';
-import { acceptEvent } from '../../lib/storage';
-import { drain } from '../../lib/events/delivery';
+import { cleanup } from '../../lib/storage';
 import { receiveSlack } from '../../lib/slack/receiver';
 import { normalize } from '../../lib/slack/normalize';
 import { encrypt,decrypt } from '../../lib/runtime/crypto';
-import { Failure } from '../../lib/runtime/config';
 const verified=()=>new CallbackClient('https://receiver.example.com',async(_url,init)=>Response.json({challenge:JSON.parse(init.body as string).challenge}));
-const count=(sqlite:any,table:string)=>sqlite.prepare(`SELECT count(*) n FROM ${table}`).get().n;
+const count=(sqlite:DatabaseSync)=>sqlite.prepare('SELECT count(*) n FROM subscriptions').get()!.n;
 
-describe('durable event lifecycle',()=>{
+describe('subscription lifecycle',()=>{
   it.each([
     [undefined,259200000],[null,259200000],[1000,1000],
     [172800000,172800000],[259200000,259200000],[345600000,259200000],
   ])('grants requested lifetime %s as %s milliseconds',async(ttlMs,granted)=>{
-    const {db,sqlite}=database(), e=env(db);
+    const {db,sqlite,queries}=database(), e=env(db);
     const result=await subscribe(e,'owner',{...subscription(),ttlMs},access,verified(),1000);
     const expires=1000+granted!;
     expect(result.refreshBefore).toBe(new Date(expires).toISOString());
     expect(sqlite.prepare('SELECT expires_at FROM subscriptions').get()?.expires_at).toBe(expires);
+    expect(queries.every(query=>query.includes('subscriptions'))).toBe(true);
   });
-  it('unsubscribes by documented canonical identity without affecting another owner or filter',async()=>{
+  it('deletes canonical subscription identity without affecting another owner or filter',async()=>{
     const {db,sqlite}=database(),e=env(db),args={conversation_id:'CTEST',thread_ts:'1793640000.123456'};
     const first=await subscribe(e,'owner',subscription(args),access,verified(),1000);
-    await subscribe(e,'owner',subscription(),access,verified(),1000);
-    await acceptEvent(e,event(),2000);
+    const second=await subscribe(e,'owner',subscription(),access,verified(),1000);
     const stop={name:'slack.message.created',arguments:{thread_ts:args.thread_ts,conversation_id:args.conversation_id},
       delivery:{mode:'webhook',url:'https://receiver.example.com/callback'}};
-    await unsubscribe(e,'stranger',stop);
+    await unsubscribe(e,'stranger',stop,2000);
     expect(sqlite.prepare('SELECT active FROM subscriptions WHERE id=?').get(first.id)?.active).toBe(1);
-    await unsubscribe({...e,CALLBACK_ALLOWED_ORIGINS:''},'owner',stop);
-    await unsubscribe(e,'owner',stop);
-    expect(sqlite.prepare('SELECT active,secret FROM subscriptions WHERE id=?').get(first.id)).toEqual({active:0,secret:null});
-    expect(sqlite.prepare('SELECT count(*) n FROM subscriptions WHERE active=1').get()?.n).toBe(1);
-    expect(sqlite.prepare("SELECT count(*) n FROM deliveries WHERE state='cancelled'").get()?.n).toBe(1);
-    expect(sqlite.prepare("SELECT count(*) n FROM deliveries WHERE state='pending'").get()?.n).toBe(1);
+    await unsubscribe({...e,CALLBACK_ALLOWED_ORIGINS:''},'owner',stop,2000);
+    expect(await unsubscribe(e,'owner',stop,2000)).toEqual({});
+    expect(sqlite.prepare('SELECT * FROM subscriptions WHERE id=?').get(first.id)).toBeUndefined();
+    expect(sqlite.prepare('SELECT id FROM subscriptions').all()).toEqual([{id:second.id}]);
   });
-  it('does not revive pending events when an expired subscription is recreated',async()=>{
-    const {db,sqlite}=database(), e=env(db);
-    await subscribe(e,'owner',subscription(),access,verified(),1000);await acceptEvent(e,event(),2000);
-    await subscribe(e,'owner',subscription(),access,verified(),259202000);
-    expect(sqlite.prepare('SELECT state FROM deliveries').get()?.state).toBe('cancelled');
+  it('keeps the legacy ID unsubscribe owner-scoped and idempotent',async()=>{
+    const {db,sqlite}=database(),e=env(db);
+    const sub=await subscribe(e,'owner',subscription(),access,verified(),1000);
+    await unsubscribe(e,'stranger',{id:sub.id},2000);
+    expect(count(sqlite)).toBe(1);
+    await unsubscribe(e,'owner',{id:sub.id},2000);
+    expect(await unsubscribe(e,'owner',{id:sub.id},2000)).toEqual({});
+    expect(count(sqlite)).toBe(0);
+  });
+  it('reverifies an expired subscription with its stable identity and new creation time',async()=>{
+    const {db,sqlite}=database(),e=env(db),callback=verified(),verify=vi.spyOn(callback,'verify');
+    const first=await subscribe(e,'owner',subscription(),access,callback,1000);
+    const second=await subscribe(e,'owner',subscription(),access,callback,259201000);
+    expect(first.id).toBe(second.id);expect(verify).toHaveBeenCalledTimes(2);
+    expect(sqlite.prepare('SELECT created_at FROM subscriptions').get()?.created_at).toBe(259201000);
+    expect(count(sqlite)).toBe(1);
   });
   it('canonical refresh rotates encrypted secrets and retains a stable identity',async()=>{
     const {db,sqlite}=database(), e=env(db), callback=verified();
@@ -56,45 +65,43 @@ describe('durable event lifecycle',()=>{
     await subscribe(e,'owner',changed,access,callback,3000);expect(spy).toHaveBeenCalledTimes(2);
     const row=sqlite.prepare('SELECT * FROM subscriptions').get() as any;
     expect(row.secret).not.toContain('whsec_');expect(await decrypt(row.secret,e.SUBSCRIPTION_ENCRYPTION_KEY,row.id)).toBe(changed.delivery.secret);
-    expect(row.created_at).toBe(1000);expect(count(sqlite,'subscriptions')).toBe(1);
+    expect(row.created_at).toBe(1000);expect(count(sqlite)).toBe(1);
   });
-  it('deduplicates retries and message/mention overlap; does not replay to new subscriptions',async()=>{
-    const {db,sqlite}=database(), e=env(db);
-    await subscribe(e,'owner',subscription(),access,verified(),1000);
-    await acceptEvent(e,event(),2000);await acceptEvent(e,event(),2001);
-    await acceptEvent(e,{...event({type:'app_mention'}),event_id:'EvMENTION'},2002);
-    expect(count(sqlite,'receipts')).toBe(2);expect(count(sqlite,'events')).toBe(1);expect(count(sqlite,'deliveries')).toBe(1);
-    await subscribe(e,'owner',subscription({conversation_id:'CTEST',thread_ts:'1793640000.123456'}),access,verified(),3000);
-    await acceptEvent(e,event(),4000);expect(count(sqlite,'deliveries')).toBe(1);
-  });
-  it('matches conversation and thread, excluding the bot and edits',async()=>{
+  it('removes expired and legacy inactive rows in bounded batches, preserving current subscriptions',async()=>{
     const {db,sqlite}=database(),e=env(db);
-    await subscribe(e,'owner',subscription({conversation_id:'CTEST',thread_ts:'1793640000.123456'}),access,verified(),1000);
-    for(const patch of [{user:'UBOT'},{bot_id:'BBOT'},{subtype:'message_changed'},{subtype:'message_deleted'},{subtype:'message_replied'},{channel:'COTHER'},{thread_ts:'1793640001.123456'}]) await acceptEvent(e,event(patch),2000);
-    expect(count(sqlite,'deliveries')).toBe(0);
-    expect(normalize(event(),e)?.data.message_ts).toBe('1793640000.123456');
+    const sub=await subscribe(e,'owner',subscription(),access,verified(),1000);
+    for(let index=0;index<105;index++) sqlite.prepare(`INSERT INTO subscriptions SELECT ?,owner,name,args,conversation,thread,callback,secret,secret_hash,verified_at,created_at,?,? FROM subscriptions WHERE id=?`)
+      .run(`stale-${index}`,index%2?1000:999999, index%2?1:0,sub.id);
+    await cleanup(e,2000);expect(count(sqlite)).toBe(6);
+    await cleanup(e,2000);expect(count(sqlite)).toBe(1);
+    expect(sqlite.prepare('SELECT id FROM subscriptions').get()?.id).toBe(sub.id);
   });
   it('fails callback challenge without storing an active subscription',async()=>{
     const {db,sqlite}=database();
     await expect(subscribe(env(db),'owner',subscription(),access,new CallbackClient('https://receiver.example.com',async()=>Response.json({challenge:'wrong'})),1000)).rejects.toThrow('challenge_failed');
-    expect(count(sqlite,'subscriptions')).toBe(0);
+    expect(count(sqlite)).toBe(0);
   });
-  it('recovers expired claims atomically and cancels unsubscribed pending work',async()=>{
-    const {db,sqlite}=database(),e=env(db);let now=Date.now();
-    const sub=await subscribe(e,'owner',subscription(),access,verified(),now);await acceptEvent(e,event(),now);
-    sqlite.prepare("UPDATE deliveries SET state='claimed',claim='abandoned',lease_until=?").run(now-1);
-    let sent=0;const callback=new CallbackClient(e.CALLBACK_ALLOWED_ORIGINS,async()=>{sent++;return new Response(null,{status:204});});
-    await Promise.all([drain(e,access,callback,()=>now),drain(e,access,callback,()=>now)]);expect(sent).toBe(1);
-    await acceptEvent(e,{...event({ts:'1793640001.123456'}),event_id:'EvNEXT'},now);
-    await unsubscribe(e,'stranger',{id:sub.id});expect(sqlite.prepare('SELECT active FROM subscriptions').get()?.active).toBe(1);
-    await unsubscribe(e,'owner',{id:sub.id});await unsubscribe(e,'owner',{id:sub.id});
-    await drain(e,access,callback,()=>now);expect(sent).toBe(1);expect(sqlite.prepare('SELECT secret FROM subscriptions').get()?.secret).toBeNull();
+  it('removes all historical operational tables and rows without changing subscription fields',()=>{
+    const sqlite=new DatabaseSync(':memory:');
+    try {
+      sqlite.exec(readFileSync('drizzle/0000_broken_white_queen.sql','utf8'));
+      sqlite.exec(readFileSync('drizzle/0001_sweet_jack_flag.sql','utf8'));
+      sqlite.exec(`INSERT INTO subscriptions VALUES ('sub','owner','slack.message.created','{}','CTEST',NULL,'https://receiver.example.com','encrypted','hash',1,1,999999,1);
+        INSERT INTO receipts VALUES ('receipt',1);
+        INSERT INTO events VALUES ('event','CTEST','1.000001','synthetic payload',1);
+        INSERT INTO deliveries(event_id,subscription_id,state,next_at,deadline) VALUES ('event','sub','pending',1,2);
+        INSERT INTO writes VALUES ('write','hash','completed','synthetic result',1);
+        INSERT INTO delivery_notices VALUES ('event','sent',NULL,'synthetic result',1);`);
+      const before=sqlite.prepare('SELECT * FROM subscriptions').all();
+      sqlite.exec(readFileSync('drizzle/0002_black_cammi.sql','utf8'));
+      expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()).toEqual([{name:'subscriptions'}]);
+      expect(sqlite.prepare('SELECT * FROM subscriptions').all()).toEqual(before);
+    } finally { sqlite.close(); }
   });
-  it.each(['expired','revoked'])('stops delivery when %s',async(kind)=>{
-    const {db,sqlite}=database(),e=env(db),now=Date.now();await subscribe(e,'owner',subscription(),access,verified(),now);await acceptEvent(e,event(),now);
-    const post=vi.fn(async()=>new Response(null,{status:204}));
-    await drain(e,kind==='revoked'?async()=>{throw new Failure('installation_revoked');}:access,new CallbackClient(e.CALLBACK_ALLOWED_ORIGINS,post),()=>now+(kind==='expired'?259200001:0));
-    expect(post).not.toHaveBeenCalled();expect(sqlite.prepare('SELECT state FROM deliveries').get()?.state).toBe(kind==='expired'?'terminal':'cancelled');
+  it('guards the application DB interface against operational queries',()=>{
+    const {db}=database();
+    expect(()=>db.prepare('SELECT * FROM events')).toThrow('subscriptions only');
+    expect(()=>db.prepare('SELECT * FROM subscriptions JOIN writes')).toThrow('subscriptions only');
   });
 });
 describe('security boundaries',()=>{
@@ -112,19 +119,21 @@ describe('security boundaries',()=>{
     const key=env({} as D1Database).SUBSCRIPTION_ENCRYPTION_KEY,encrypted=await encrypt(secret,key,'one');
     await expect(decrypt(encrypted,key,'two')).rejects.toThrow();
   });
-  it('verifies raw Slack signatures, challenge, installation context and failed persistence',async()=>{
-    const {db,sqlite}=database(),e=env(db),now=Date.now();
+  it('verifies raw Slack signatures and installation context before in-memory acceptance',async()=>{
+    const {db,queries}=database(),e=env(db),now=Date.now();
     function request(body:unknown,ts=Math.floor(now/1000),bad=false) {
       const raw=JSON.stringify(body),signature=createHmac('sha256',e.SLACK_SIGNING_SECRET).update(`v0:${ts}:${raw}`).digest('hex');
       return new Request('https://site.example/slack/events',{method:'POST',headers:{'x-slack-request-timestamp':String(ts),'x-slack-signature':`v0=${bad?'0'.repeat(64):signature}`},body:raw});
     }
-    expect((await receiveSlack(request(event(),undefined,true),e,now)).status).toBe(401);
-    expect((await receiveSlack(request(event(),Math.floor(now/1000)-301),e,now)).status).toBe(401);
-    expect((await receiveSlack(request({...event(),team_id:'TOTHER'}),e,now)).status).toBe(403);
-    expect(await (await receiveSlack(request({type:'url_verification',challenge:'challenge'}),e,now)).json()).toEqual({challenge:'challenge'});
-    expect(count(sqlite,'receipts')).toBe(0);
-    expect((await receiveSlack(request(event()),e,now)).status).toBe(200);expect(count(sqlite,'receipts')).toBe(1);
-    const broken={...e,DB:{prepare:db.prepare.bind(db),batch:async()=>{throw new Error('synthetic failure');}} as unknown as D1Database};
-    expect((await receiveSlack(request(event()),broken,now)).status).toBe(503);
+    const accepted=vi.fn();
+    expect((await receiveSlack(request(event(),undefined,true),e,now,accepted)).status).toBe(401);
+    expect((await receiveSlack(request(event(),Math.floor(now/1000)-301),e,now,accepted)).status).toBe(401);
+    expect((await receiveSlack(request({...event(),team_id:'TOTHER'}),e,now,accepted)).status).toBe(403);
+    expect(await (await receiveSlack(request({type:'url_verification',challenge:'challenge'}),e,now,accepted)).json()).toEqual({challenge:'challenge'});
+    expect(accepted).not.toHaveBeenCalled();
+    expect((await receiveSlack(request(event()),e,now,accepted)).status).toBe(200);
+    expect(accepted).toHaveBeenCalledTimes(1);
+    expect(accepted.mock.calls[0][0]).toEqual(normalize(event(),e));
+    expect(queries).toEqual([]);
   });
 });

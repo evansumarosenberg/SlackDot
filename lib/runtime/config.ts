@@ -9,7 +9,6 @@ export interface Env {
   OWNER_USER_ID: string;
   SUBSCRIPTION_ENCRYPTION_KEY: string;
   CALLBACK_ALLOWED_ORIGINS: string;
-  DELIVERY_TRIGGER_SECRET: string;
   SITES_IDENTITY_VERIFIED: string;
 }
 export class Failure extends Error {

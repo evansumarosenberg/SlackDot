@@ -2,13 +2,13 @@ import { App, LogLevel, type Receiver } from '@slack/bolt';
 import { createHmac } from 'node:crypto';
 import { boundedText, Failure, requireConfig, type Env } from '../runtime/config';
 import { equal } from '../runtime/crypto';
-import { acceptEvent } from '../storage';
+import { normalize, type MessageEvent } from './normalize';
 import { SLACK_CALL_MS } from '../events/budget';
 
 export const quietLogger = {debug(){}, info(){}, warn(){}, error(){}, setLevel(){}, getLevel(){return LogLevel.ERROR;}, setName(){}};
 export class FetchReceiver implements Receiver {
   app!: App;
-  acceptedEvent: string | null = null;
+  acceptedEvent: MessageEvent | null = null;
   init(app: App) { this.app = app; }
   async start() {}
   async stop() {}
@@ -34,11 +34,10 @@ export function createBolt(env: Env, deadline = Infinity) {
       }},
   });
   app.error(async () => { throw new Failure('acceptance_failed'); });
-  app.use(async ({body}) => { receiver.acceptedEvent=await acceptEvent(env, body); });
+  app.use(async ({body}) => { receiver.acceptedEvent=normalize(body, env); });
   return {app, receiver};
 }
-export async function receiveSlack(request: Request, env: Env, now = Date.now(), accepted?: (eventId:string)=>void) {
-  const started=Date.now();
+export async function receiveSlack(request: Request, env: Env, now = Date.now(), accepted?: (event:MessageEvent, acceptedAt:number)=>void) {
   try {
     requireConfig(env, ['DB','SLACK_SIGNING_SECRET','SLACK_BOT_TOKEN','SLACK_TEAM_ID','SLACK_BOT_USER_ID','SLACK_BOT_ID','SLACK_APP_ID','OWNER_USER_ID']);
     const raw = await boundedText(request, 256*1024);
@@ -51,14 +50,13 @@ export async function receiveSlack(request: Request, env: Env, now = Date.now(),
     if (body.type === 'url_verification' && typeof body.challenge === 'string' && body.challenge.length <= 1024) return Response.json({challenge:body.challenge});
     if (body.type !== 'event_callback' || body.team_id !== env.SLACK_TEAM_ID || body.api_app_id !== env.SLACK_APP_ID || typeof body.event_id !== 'string' || body.event_id.length > 128 || !body.event) return new Response(null,{status:403});
     const {receiver} = createBolt(env);
-    // Bound the acknowledgment path; a late commit is harmless because acceptance is idempotent.
+    // Bound normalization before acknowledgment; no event data is persisted.
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([receiver.receive(body), new Promise((_,reject) => {timer=setTimeout(()=>reject(new Failure('acceptance_timeout')),2400);})]);
     } finally { clearTimeout(timer); }
-    console.info(JSON.stringify({component:'slack_ingress',outcome:'accepted',ack_ms:Date.now()-started}));
-    // Register only committed work. No callback or Slack API request is awaited here.
-    if(receiver.acceptedEvent && accepted) accepted(receiver.acceptedEvent);
+    // Register request-local work. No callback or Slack API request is awaited here.
+    if(receiver.acceptedEvent && accepted) accepted(receiver.acceptedEvent,now);
     return new Response(null,{status:200});
   } catch (error) {
     return Response.json({error:error instanceof Failure ? error.category : 'acceptance_failed'},{status:503});

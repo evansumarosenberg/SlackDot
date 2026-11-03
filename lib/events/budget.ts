@@ -1,4 +1,4 @@
-// One accepted event's request budget; duplicates never restart these clocks.
+// One invocation's budget. Separate Slack redeliveries receive their own budget.
 export const DELIVERY_MS = 20_000;
 export const NOTICE_MS = 5_000;
 export const MAX_ATTEMPTS = 3;

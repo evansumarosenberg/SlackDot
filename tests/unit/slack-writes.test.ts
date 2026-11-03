@@ -1,35 +1,63 @@
 import { beforeEach,it,expect,vi } from 'vitest';
-import { database } from '../support/database';
 import { env } from '../support/fixtures';
 const mocks=vi.hoisted(()=>({auth:vi.fn(),info:vi.fn(),post:vi.fn(),replies:vi.fn()}));
 vi.mock('../../lib/slack/receiver',()=>({createBolt:()=>({app:{client:{auth:{test:mocks.auth},conversations:{info:mocks.info,replies:mocks.replies},chat:{postMessage:mocks.post}}}})}));
-import { SlackService } from '../../lib/slack/service';
+import { SlackService, sendSchema } from '../../lib/slack/service';
 beforeEach(()=>{
   vi.resetAllMocks();mocks.auth.mockResolvedValue({team_id:'TTEST',user_id:'UBOT',bot_id:'BBOT'});
   mocks.info.mockResolvedValue({channel:{id:'CTEST',is_member:true}});
   mocks.post.mockResolvedValue({channel:'CTEST',ts:'1793640001.123456'});
 });
 const input={conversation_id:'CTEST',text:'Synthetic reply',request_id:'request-123',thread_ts:'1793640000.123456'};
-it('persists successful write results and rejects request ID conflicts',async()=>{
-  const {db}=database(),service=new SlackService(env(db));
-  const first=await service.send(input,'owner');const second=await new SlackService(env(db)).send(input,'owner');
-  expect(second).toEqual(first);expect(mocks.post).toHaveBeenCalledTimes(1);
-  expect(mocks.post.mock.calls[0][0].thread_ts).toBe(input.thread_ts);expect(mocks.post.mock.calls[0][0].reply_broadcast).toBe(false);
-  await expect(service.send({...input,text:'different'},'owner')).rejects.toThrow('request_id_conflict');
+const noStorage=new Proxy({} as D1Database,{get(){throw new Error('Slack tools must not access storage');}});
+it('posts once per invocation without retaining or replaying legacy request IDs',async()=>{
+  const service=new SlackService(env(noStorage));
+  const first=await service.send(input,'owner');
+  expect(first).toEqual({conversation_id:'CTEST',message_ts:'1793640001.123456',thread_ts:input.thread_ts});
+  await new SlackService(env(noStorage)).send(input,'owner');
+  await service.send({...input,text:'different'},'owner');
+  expect(mocks.post).toHaveBeenCalledTimes(3);
+  expect(mocks.post.mock.calls[0][0]).toMatchObject({thread_ts:input.thread_ts,reply_broadcast:false,unfurl_links:false,unfurl_media:false});
+  expect(mocks.post.mock.calls[0][0]).not.toHaveProperty('request_id');
 });
-it('never automatically repeats an ambiguous Slack write',async()=>{
-  const {db,sqlite}=database(),service=new SlackService(env(db));mocks.post.mockRejectedValue(new Error('lost response with secret payload'));
-  await expect(service.send(input,'owner')).rejects.toThrow('ambiguous_write');
-  await expect(service.send(input,'owner')).rejects.toThrow('ambiguous_write');
-  expect(mocks.post).toHaveBeenCalledTimes(1);expect(sqlite.prepare('SELECT state FROM writes').get()?.state).toBe('ambiguous');
+it('accepts new calls without a legacy request ID',async()=>{
+  const parsed=sendSchema.parse({conversation_id:'CTEST',text:'Synthetic reply'});
+  expect(parsed.request_id).toBeUndefined();
+  expect(await new SlackService(env(noStorage)).send(parsed,'owner')).toMatchObject({thread_ts:null});
 });
-it('guards concurrent writes and a crash after claim',async()=>{
-  const {db}=database(),service=new SlackService(env(db));
+it('never automatically repeats an ambiguous Slack write or retains the failure',async()=>{
+  const service=new SlackService(env(noStorage));
+  mocks.post.mockRejectedValueOnce(new Error('lost response with secret payload'));
+  await expect(service.send(input,'owner')).rejects.toThrow('ambiguous_write');
+  expect(mocks.post).toHaveBeenCalledTimes(1);
+  await expect(service.send(input,'owner')).resolves.toMatchObject({conversation_id:'CTEST'});
+  expect(mocks.post).toHaveBeenCalledTimes(2);
+});
+it('allows independent concurrent invocations with no cross-request suppression',async()=>{
+  const service=new SlackService(env(noStorage));
   const outcomes=await Promise.allSettled([service.send(input,'owner'),service.send(input,'owner')]);
-  expect(outcomes.some(o=>o.status==='fulfilled')).toBe(true);expect(mocks.post).toHaveBeenCalledTimes(1);
+  expect(outcomes.every(o=>o.status==='fulfilled')).toBe(true);
+  expect(mocks.post).toHaveBeenCalledTimes(2);
+});
+it.each([
+  [{code:'slack_webapi_rate_limited_error',retryAfter:12},'rate_limited'],
+  [{data:{error:'missing_scope'}},'missing_scope'],
+  [{data:{error:'token_revoked'}},'installation_revoked'],
+  [{data:{error:'not_in_channel'}},'conversation_unavailable'],
+  [{data:{error:'msg_too_long'}},'invalid_message'],
+  [{data:{error:'internal_error'}},'ambiguous_write'],
+])('reports bounded Slack rejections and uncertainty without retries',async(error,category)=>{
+  mocks.post.mockRejectedValueOnce(error);
+  await expect(new SlackService(env(noStorage)).send(input,'owner')).rejects.toMatchObject({category});
+  expect(mocks.post).toHaveBeenCalledTimes(1);
+});
+it('treats incomplete success responses as uncertain',async()=>{
+  mocks.post.mockResolvedValueOnce({ok:true});
+  await expect(new SlackService(env(noStorage)).send(input,'owner')).rejects.toThrow('ambiguous_write');
+  expect(mocks.post).toHaveBeenCalledTimes(1);
 });
 it('checks workspace identity and conversation membership before posting',async()=>{
-  const service=new SlackService(env(database().db));
+  const service=new SlackService(env(noStorage));
   mocks.auth.mockResolvedValueOnce({team_id:'TOTHER',user_id:'UBOT',bot_id:'BBOT'});
   await expect(service.send(input,'owner')).rejects.toThrow('installation_mismatch');
   mocks.info.mockResolvedValueOnce({channel:{is_member:false}});
@@ -38,7 +66,7 @@ it('checks workspace identity and conversation membership before posting',async(
   await expect(service.send(input,'owner')).rejects.toThrow('conversation_unavailable');expect(mocks.post).not.toHaveBeenCalled();
 });
 it('reports thread pagination and unsupported bot-token behavior without fabricated context',async()=>{
-  const service=new SlackService(env(database().db));
+  const service=new SlackService(env(noStorage));
   mocks.replies.mockResolvedValueOnce({has_more:true,response_metadata:{next_cursor:'next'},messages:[{ts:input.thread_ts,text:'Synthetic context',user:'UPERSON'}]});
   expect(await service.thread({conversation_id:'CTEST',thread_ts:input.thread_ts,limit:20})).toMatchObject({source:'slack.conversations.replies',complete:false,next_cursor:'next'});
   mocks.replies.mockRejectedValueOnce({data:{error:'not_allowed_token_type'}});
