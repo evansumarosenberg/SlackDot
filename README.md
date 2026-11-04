@@ -31,7 +31,7 @@ SLACK_BOT_USER_ID=
 
 The installation agent configures the remaining values. You may also need to sign in, approve the plugin connection, identify your own Slack member account, and send a test DM. Some authenticated steps may need your browser or a supported secure handoff. Keep secrets out of chat.
 
-To connect another Slack workspace, repeat the setup with a separate Slack app, Site and plugin. Make sure to give each installation a recognizable workspace label so your Dot uses the right connection.
+To connect another Slack workspace, instruct your agent to repeat the setup with a separate Slack app, Site, and plugin. Make sure to give each installation a recognizable workspace label so your Dot uses the right connection.
 
 ## Privacy
 
