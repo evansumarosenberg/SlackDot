@@ -5,7 +5,7 @@ import type { Env } from './config';
 
 export async function route(request: Request, env: Env, ctx?: Pick<ExecutionContext,'waitUntil'>): Promise<Response | null> {
   const path=new URL(request.url).pathname;
-  if (path==='/health') return Response.json({service:'SlackDot',status:'ok',stage:'compatibility-prototype'});
+  if (path==='/health') return Response.json({service:'SlackDot',status:'ok'});
   if (!['/mcp','/slack/events'].includes(path)) return null;
   if (request.method!=='POST') return new Response(null,{status:405,headers:{Allow:'POST'}});
   try {

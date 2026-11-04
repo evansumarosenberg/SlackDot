@@ -287,6 +287,23 @@ it('sets processing only after a successful callback, once for concurrent fanout
   expect(f.deps.processing).toHaveBeenCalledWith('CTEST',f.message.data.thread_ts,f.start+2000);
   releases[1]();await done;expect(f.deps.processing).toHaveBeenCalledTimes(1);
 });
+it.each([
+  {mode:'0',bot:true,indicators:0},
+  {mode:'0',bot:false,indicators:1},
+  {mode:'1',bot:true,indicators:1},
+  {mode:undefined,bot:true,indicators:1},
+])('delivers opted-in messages with mode $mode and bot=$bot, starting $indicators indicators',async({mode,bot,indicators})=>{
+  const f=await fixture();
+  f.e.SLACK_SESSION_STATUS_ENABLED=mode;
+  await unsubscribe(f.e,'owner',{id:f.sub.id},f.start);
+  await subscribe(f.e,'owner',{...subscription(),arguments:{conversation_id:'CTEST',include_bot_messages:true}},access,f.verified,f.start);
+  const message=normalize(event(bot?{user:'UOTHER',bot_id:'BOTHER',subtype:'bot_message'}:{}),f.e)!;
+  expect(message.data).toMatchObject({is_bot:bot});
+  await deliverEvent(f.e,message,f.start,f.deps);
+  expect(f.transport).toHaveBeenCalledTimes(1);
+  expect(f.deps.processing).toHaveBeenCalledTimes(indicators);
+  expect(f.notice).not.toHaveBeenCalled();
+});
 it('keeps status failures separate from successful delivery and subscription state',async()=>{
   const f=await fixture();f.deps.processing.mockRejectedValue(new Failure('missing_scope'));
   expect(await f.run()).toEqual({processed:1});
