@@ -1,6 +1,9 @@
 # SlackDot
 
-**One Dot, Many Slacks.**
+> One Dot to ping them all,
+> One Dot to find them,
+> One Dot to bridge them all,
+> And in the Slackness bind them.
 
 SlackDot lets a single Dot send and receive messages in multiple Slack workspaces. Each workspace gets its own Slack bot, each connected through a lightweight bridge deployed automatically on ChatGPT Sites. No external infrastructure needed!
 
