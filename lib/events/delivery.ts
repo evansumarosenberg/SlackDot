@@ -82,7 +82,7 @@ export async function deliverEvent(env:Env,event:SlackEvent,acceptedAt:number,de
         try { await response.body?.cancel(); } catch { /* Status is already known. */ }
         if(response.ok) {
           if(!processing && event.name==='slack.message.created' && timestamp.safeParse(event.data.thread_ts).success && clock()<noticeDeadline) {
-            const update=deps.processing??((conversation,thread,end)=>setSessionStatus(env,conversation,thread,'processing',end));
+            const update=deps.processing??((conversation,thread,end)=>setSessionStatus(env,conversation,thread,'processing',end,event.data.message_ts));
             // Start on the first confirmed delivery, not after slower fanout
             // destinations finish. One attempt per invocation, within 25 seconds.
             processing=(async()=>{

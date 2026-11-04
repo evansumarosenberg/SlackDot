@@ -1,6 +1,6 @@
 import {beforeEach,it,expect,vi} from 'vitest';
 import {env} from '../support/fixtures';
-const mocks=vi.hoisted(()=>({status:vi.fn(),createBolt:vi.fn()}));
+const mocks=vi.hoisted(()=>({add:vi.fn(),remove:vi.fn(),replies:vi.fn(),status:vi.fn(),createBolt:vi.fn()}));
 vi.mock('../../lib/slack/receiver',()=>({createBolt:mocks.createBolt}));
 import {setSessionStatus} from '../../lib/slack/session-status';
 import {SlackService} from '../../lib/slack/service';
@@ -9,14 +9,15 @@ const e=env(new Proxy({} as D1Database,{get(){throw new Error('No status storage
 const target={conversation_id:'CTEST',thread_ts:'1793640000.123456'};
 beforeEach(()=>{
   vi.restoreAllMocks();vi.resetAllMocks();
-  mocks.createBolt.mockReturnValue({app:{client:{agents:{sessions:{setStatus:mocks.status}}}}});
+  mocks.createBolt.mockReturnValue({app:{client:{reactions:{add:mocks.add,remove:mocks.remove},conversations:{replies:mocks.replies},agents:{sessions:{setStatus:mocks.status}}}}});
+  mocks.replies.mockResolvedValue({messages:[]});
   mocks.status.mockResolvedValue({ok:true,agent_status:'active'});
 });
 async function call(name:string,args:Record<string,unknown>,config=e) {
   const request=new Request('https://site.example/mcp',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json','Mcp-Method':'tools/call','Mcp-Name':name,'MCP-Protocol-Version':'2026-07-28','oai-authenticated-user-id':'owner'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:args,_meta:{'io.modelcontextprotocol/protocolVersion':'2026-07-28','io.modelcontextprotocol/clientInfo':{name:'test',version:'1'},'io.modelcontextprotocol/clientCapabilities':{}}}})});
   return await (await handleMcp(request,config)).json() as any;
 }
-it.each(['0','false','','invalid'])('skips both status calls without creating a client when configured as %j',async(value)=>{
+it.each(['false','','invalid'])('skips both status calls without creating a client when configured as %j',async(value)=>{
   const disabled={...e,SLACK_SESSION_STATUS_ENABLED:value};
   await setSessionStatus(disabled,'CTEST',target.thread_ts,'processing');
   await setSessionStatus(disabled,'CTEST',target.thread_ts,'active');
@@ -75,4 +76,36 @@ it('does not mark active after a failed send, top-level post, or thread read',as
   vi.spyOn(SlackService.prototype,'thread').mockResolvedValue({source:'slack.conversations.replies',complete:true,next_cursor:null,messages:[]});
   expect((await call('slack_get_thread',target)).result.isError).not.toBe(true);
   expect(mocks.status).not.toHaveBeenCalled();
+});
+
+it('adds eyes to the actual follow-up message rather than the thread root',async()=>{
+  const config={...e,SLACK_SESSION_STATUS_ENABLED:'0'};
+  await setSessionStatus(config,'CTEST',target.thread_ts,'processing',Date.now()+2000,'1793640002.000001');
+  expect(mocks.add).toHaveBeenCalledExactlyOnceWith({token:e.SLACK_BOT_TOKEN,channel:'CTEST',timestamp:'1793640002.000001',name:'eyes'});
+  expect(mocks.status).not.toHaveBeenCalled();
+});
+it('clears only our eyes on human messages, across pages, after a confirmed reply',async()=>{
+  const ours=[{name:'eyes',users:[e.SLACK_BOT_USER_ID]}];
+  mocks.replies.mockResolvedValueOnce({messages:[{ts:target.thread_ts,user:'UHUMAN',reactions:ours},{ts:'2',user:'UHUMAN',reactions:[{name:'eyes',users:['UOTHER']}]},{ts:'3',user:e.SLACK_BOT_USER_ID,reactions:ours},{ts:'4',user:'UOTHERBOT',bot_id:'BOTHER',reactions:ours}],response_metadata:{next_cursor:'page2'}}).mockResolvedValueOnce({messages:[{ts:'5',user:'UHUMAN',reactions:ours}]});
+  vi.spyOn(SlackService.prototype,'send').mockImplementation(async()=>{expect(mocks.remove).not.toHaveBeenCalled();return {...target,message_ts:'6'};});
+  const result=await call('slack_send_message',{...target,text:'Reply'},{...e,SLACK_SESSION_STATUS_ENABLED:'0'});
+  expect(result.result.isError).not.toBe(true);
+  expect(mocks.remove.mock.calls.map(([args])=>args.timestamp)).toEqual([target.thread_ts,'5']);
+  expect(mocks.replies.mock.calls[1][0].cursor).toBe('page2');
+  expect(mocks.status).not.toHaveBeenCalled();
+});
+it('keeps replies successful when reaction cleanup fails',async()=>{
+  mocks.replies.mockRejectedValue(new Error('timeout'));
+  vi.spyOn(SlackService.prototype,'send').mockResolvedValue({...target,message_ts:'6'});
+  expect((await call('slack_send_message',{...target,text:'Reply'},{...e,SLACK_SESSION_STATUS_ENABLED:'0'})).result.isError).not.toBe(true);
+  expect(mocks.replies).toHaveBeenCalledTimes(1);
+});
+it('bounds reaction pagination and honors an expired deadline',async()=>{
+  const config={...e,SLACK_SESSION_STATUS_ENABLED:'0'};
+  let page=0;mocks.replies.mockImplementation(async()=>({messages:[],response_metadata:{next_cursor:String(++page)}}));
+  await setSessionStatus(config,'CTEST',target.thread_ts,'active');
+  expect(mocks.replies).toHaveBeenCalledTimes(10);
+  mocks.createBolt.mockClear();
+  await setSessionStatus(config,'CTEST',target.thread_ts,'processing',Date.now()-1);
+  expect(mocks.createBolt).not.toHaveBeenCalled();
 });
