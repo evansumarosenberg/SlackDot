@@ -23,7 +23,7 @@ Read https://github.com/evansumarosenberg/SlackDot/blob/master/README.md and fol
 
 **Installation agent: read [AGENTS.md](AGENTS.md), then follow [docs/install.md](docs/install.md) in order.** The installation guide is the canonical procedure, including manual handoffs, configuration, verification and the prompt to give the Dot.
 
-You will create/install the Slack app and enter only these four Site environment values when prompted:
+You (the human) will create/install the Slack app and enter only these four Site environment values when prompted:
 
 ```dotenv
 SLACK_APP_ID=
