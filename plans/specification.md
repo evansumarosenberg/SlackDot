@@ -5,6 +5,8 @@ Last updated: 2026-11-02
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
 Next phase: [Full application implementation plan](implementation-plan.md)
 
+Approved design extension (implementation pending): [Conversation wildcard subscription addendum](conversation-wildcard-addendum.md). It defines explicit `conversation_id: "*"` support across all five event types and the corresponding access, lifecycle and compatibility rules.
+
 ## 1. Purpose
 
 SlackDot is a TypeScript Slack app that exposes an MCP server so an OpenAI dot can communicate in a Slack workspace through a Slack Bot User OAuth token. The dot can read and send messages in the bot's direct messages and in channels the bot has joined. MCP Events notify the dot of matching Slack activity without requiring the dot to poll for messages.
