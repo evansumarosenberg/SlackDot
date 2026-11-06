@@ -18,7 +18,8 @@ export interface DeliveryDependencies {
   sleep?: (ms:number)=>Promise<void>;
 }
 interface Outcome { id:string; state:'delivered'|'failed'|'cancelled'|'suppressed'; attempts:number }
-const revoked = ['installation_revoked','installation_mismatch','conversation_unavailable','not_found','not_in_conversation','missing_scope'];
+const conversationRevoked = ['conversation_unavailable','not_found','not_in_conversation'];
+const installationRevoked = ['installation_revoked','installation_mismatch','missing_scope'];
 const category = (e:unknown) => e instanceof Failure ? e.category : 'delivery_failed';
 
 // Payloads and attempts remain invocation-local. Only opaque deduplication keys,
@@ -32,7 +33,7 @@ export async function deliverEvent(env:Env,event:SlackEvent,acceptedAt:number,de
   await cleanup(env,clock());
   if(clock()>=deadline) return {processed:0};
   const rows=await env.DB.prepare(`SELECT id,thread FROM subscriptions WHERE owner=? AND active=1 AND expires_at>?
-    AND created_at<=? AND name=? AND conversation=? ORDER BY id`)
+    AND created_at<=? AND name=? AND conversation IN (?, '*') ORDER BY id`)
     .bind(env.OWNER_USER_ID,clock(),acceptedAt,event.name,event.data.conversation_id).all<{id:string;thread:string|null}>();
   if((event.name==='slack.reaction.added'||event.name==='slack.reaction.removed'||event.name==='slack.message.updated') && event.data.thread_ts===null &&
     rows.results.some(sub=>sub.thread!==null) && clock()+MIN_ATTEMPT_MS<deadline) {
@@ -66,7 +67,18 @@ export async function deliverEvent(env:Env,event:SlackEvent,acceptedAt:number,de
       attempts++;
       let requestedDelay=0;
       try {
-        await access(sub!.conversation,deadline);
+        try { await access(event.data.conversation_id,deadline); }
+        catch(e) {
+          const reason=category(e);
+          if(installationRevoked.includes(reason)||conversationRevoked.includes(reason)) {
+            // Losing one channel must not disable a workspace-wide subscription.
+            if(installationRevoked.includes(reason)||sub!.conversation!=='*') {
+              await env.DB.prepare('DELETE FROM subscriptions WHERE id=? AND owner=?').bind(id,env.OWNER_USER_ID).run();
+            }
+            return result('cancelled');
+          }
+          throw e;
+        }
         sub=await current(id);
         if(!active(sub)) return result('cancelled');
         const secret=await decrypt(sub!.secret!,env.SUBSCRIPTION_ENCRYPTION_KEY,sub!.id);
@@ -97,10 +109,6 @@ export async function deliverEvent(env:Env,event:SlackEvent,acceptedAt:number,de
         if(status>=400&&status<500&&status!==429&&status!==408) return result('failed');
       } catch(e) {
         const reason=category(e);
-        if(revoked.includes(reason)) {
-          await env.DB.prepare('DELETE FROM subscriptions WHERE id=? AND owner=?').bind(id,env.OWNER_USER_ID).run();
-          return result('cancelled');
-        }
         if(reason.startsWith('callback_destination')||['callback_policy_unconfigured','callback_redirect_blocked','payload_too_large'].includes(reason)) return result('failed');
         if(e instanceof Failure) requestedDelay=(e.retryAfter??0)*1000;
       }

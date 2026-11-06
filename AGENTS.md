@@ -18,6 +18,8 @@ Read [docs/install.md](docs/install.md) before installing SlackDot. It is the si
 
 ## Scope and repository edits
 
+Keep the README human-facing and the installation guide limited to setup. Maintain MCP tool, event and wildcard reference documentation in [the plugin usage skill](plugin/skills/use-slackdot/SKILL.md); avoid prescribing agent workflows. Skill edits are local drafts unless the user explicitly requests publication.
+
 Keep the application entirely on Sites. Store only necessary subscription data and the authorized opaque event/subscription deduplication records (three-hour fixed expiry, 45-second processing claims, request-driven cleanup). Do not store message payloads, raw event/subscription identifiers in deduplication records, attempt histories or Slack write results; do not add external schedulers, diagnostics dashboards or configuration GUIs. Retain the existing scopes, including `assistant:write`. Automatic session status is limited to confirmed message-event delivery and successful threaded tool replies; do not add status tools or expand agent UI features beyond the requested scope.
 
 For documentation requests, edit documentation only and do not start an installation, change a live Site or create subscriptions. Preserve the user's edits. Do not commit or push repository changes unless explicitly asked. A requested Site installation uses the Sites-managed source synchronization required for publishing in its deployment checkout; it does not authorize pushing edits to the upstream SlackDot repository.

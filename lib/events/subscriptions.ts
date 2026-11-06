@@ -4,6 +4,7 @@ import { Failure, requireConfig, type Env } from '../runtime/config';
 import { canonical, encrypt, hash } from '../runtime/crypto';
 import { cleanup, type Subscription } from '../storage';
 import { CallbackClient, validateSecret } from './callback';
+import { SlackService } from '../slack/service';
 
 const SUBSCRIPTION_LIFETIME_MS = 72 * 60 * 60 * 1000;
 
@@ -32,10 +33,11 @@ const unsubscribeSchema=z.union([
 function subscriptionId(principal:string,url:string,name:string,args:unknown) {
   return `sub_${hash(canonical({principal,url,name,arguments:args}))}`;
 }
-export async function subscribe(env: Env, principal: string, value: unknown, access:(id:string)=>Promise<void>, callback=new CallbackClient(env.CALLBACK_ALLOWED_ORIGINS), now=Date.now()) {
+export async function subscribe(env: Env, principal: string, value: unknown, access:(id:string)=>Promise<void>, callback=new CallbackClient(env.CALLBACK_ALLOWED_ORIGINS), now=Date.now(), identity:()=>Promise<unknown>=()=>new SlackService(env).identity()) {
   requireConfig(env,['DB','SUBSCRIPTION_ENCRYPTION_KEY']);
   const input=subscribeSchema.parse(value);
-  await access(input.arguments.conversation_id);
+  if(input.arguments.conversation_id==='*') await identity();
+  else await access(input.arguments.conversation_id);
   validateSecret(input.delivery.secret);
   const url=callback.validate(input.delivery.url), args=canonical(input.arguments);
   const id=subscriptionId(principal,url,input.name,input.arguments);

@@ -2,7 +2,7 @@
 
 Date: 2026-11-05
 
-Status: design approved by the owner; implementation and live verification pending. This document specifies the requested extension, not deployed behavior.
+Status: implemented, independently reviewed and deployed as SlackDot version 9 on 2026-11-05. Local validation and hosted health/connection checks pass; native wildcard automation verification remains pending.
 
 This addendum extends the [SlackDot specification](specification.md), especially section 9's subscription filters and lifecycle and section 10's matching behavior. It supersedes the requirement that every subscription identify one concrete conversation, while keeping `conversation_id` required. Other requirements in the specification and [agent instructions](../AGENTS.md) remain in force. Historical acceptance in the [implementation plan](implementation-plan.md) does not establish wildcard support.
 
@@ -142,3 +142,34 @@ An independent subagent completed a read-only review on 2026-11-05 against the c
 | P3: The main specification should link to the addendum so implementers do not miss the approved extension | Accepted. The baseline specification is the natural entry point; the extension must be discoverable there | Added a link near the main specification's status and companion documents, explicitly labeling this design approved and implementation pending. The link was added while review was underway and satisfies the finding |
 
 No findings were rejected or deferred, and no design decisions remain open from this review. Documentation validation checks local links, the JSON example and whitespace; runtime tests and live verification remain implementation acceptance work, not evidence claimed by this addendum.
+
+## 11. Implementation validation
+
+The owner subsequently requested implementation, tests and an independent code review. The local implementation now accepts subscription-only wildcard selectors, advertises the wildcard/thread exclusion, verifies installation identity on wildcard subscribe/refresh, checks actual event conversation access before callbacks, and retains wildcard subscriptions after conversation-specific access loss. Existing storage and concrete subscription identities are preserved.
+
+Validation completed on 2026-11-05:
+
+- All 259 unit/protocol tests pass, including 36 new wildcard tests in [wildcard.test.ts](../tests/unit/wildcard.test.ts).
+- TypeScript checks and the supported Sites build pass.
+- The new [built-Worker wildcard check](../tests/compatibility/wildcard-smoke.mjs) passes all five event types, producing 14 signed callbacks with zero wildcard Slack access calls. It covers identity-only creation, multiple conversations, overlapping subscriptions and duplicate suppression, membership/access loss, missing scopes, a newly accessible channel, explicit DM mentions and unsubscribe.
+- The existing built-Worker catalog check passes all 14 tools and five event types. Existing retry, permanent-failure, fanout and duplicate-ingress Worker scenarios also pass.
+- Documentation links, the JSON example and `git diff --check` pass.
+
+A separate subagent independently reviewed the implementation and tests against this addendum and the project instructions. It reported no actionable findings; no fixes or deferred findings arose from that code review. The reviewer did not rerun the primary agent's checks. The results above are local synthetic validation, not native hosted acceptance. No deployment, live subscription change, commit or push was performed as part of this implementation task.
+
+## 12. Authorized deployment
+
+The owner subsequently requested deployment to the existing SlackDot Site. The Sites workflow reused the existing deployment checkout, rebuilt the application and reran the wildcard Worker check successfully, then synchronized only the Site-managed source repository. The upstream SlackDot repository was not committed or pushed.
+
+| Item | Recorded value |
+| --- | --- |
+| Site | `appgprj_6ae96bf305348191b643a34ca36eb892` |
+| URL | [SlackDot](https://slackdot.paryllax.chatgpt.site) |
+| Saved version | 9: `appgprj_6ae96bf305348191b643a34ca36eb892~appgver_2d3403d8675c81918615da61457b1e0a` |
+| Managed source commit | `518a9f2aa31643b9acd4d6c404df3f9073adbd23` |
+| Deployment | `appgdep_6aed3d2d76488191847ad3bb54d40d2e` |
+| Result | Succeeded at 2026-11-05 20:36:38 America/Chicago (2026-11-06 02:36:38 UTC), MCP enabled |
+| Environment revision | 18; no environment settings changed |
+| Existing plugin | `plugin_asdk_app_sites_e91d3007f878819186ee330fdc8bf4e6` |
+
+Hosted `/health` returned HTTP 200 with `service: SlackDot` and `status: ok`; anonymous `POST /mcp` returned 401. The connected plugin's read-only connection check succeeded for workspace `T6BL7UHQF`, bot user `U0CEA5NGMV4`, bot `B0CEE1GE9B3`, and all five event types. The existing public audience, plugin and database were retained. No live subscription was created or changed and no Slack message was sent. These checks confirm deployment and the connection, not the native wildcard automation acceptance in section 9.

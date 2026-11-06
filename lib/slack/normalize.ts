@@ -6,12 +6,14 @@ export const timestamp = z.string().regex(/^\d{1,16}\.\d{6}$/);
 const userId=z.string().regex(/^[UW][A-Z0-9]{2,}$/).max(32);
 const userIds=z.array(userId).min(1).max(100);
 const emojiName=z.string().regex(/^[a-zA-Z0-9_+\-]+(?:::(?:skin-tone-[2-6]))?$/).max(100);
-const commonFilter={conversation_id:conversationId,thread_ts:timestamp.optional()};
+const commonFilter={conversation_id:z.union([conversationId,z.literal('*')]).describe('A concrete conversation ID, or * for all accessible joined channels and bot one-to-one DMs. * cannot be combined with thread_ts.'),thread_ts:timestamp.optional()};
+const validThreadScope=(filter:{conversation_id:string;thread_ts?:string})=>filter.conversation_id!=='*'||filter.thread_ts===undefined;
+const threadScopeError={message:'thread_ts requires a concrete conversation_id',path:['thread_ts']};
 // Keep defaults implicit: inserting false into canonical arguments would change
 // existing subscription IDs and disconnect their encrypted signing material.
-export const filterSchema=z.object({...commonFilter,sender_user_ids:userIds.optional(),mentions_only:z.boolean().optional(),include_bot_messages:z.boolean().optional()}).strict();
-export const deletedFilterSchema=z.object({...commonFilter,sender_user_ids:userIds.optional(),include_bot_messages:z.boolean().optional()}).strict();
-export const reactionFilterSchema=z.object({...commonFilter,actor_user_ids:userIds.optional(),emoji_name:emojiName.optional()}).strict();
+export const filterSchema=z.object({...commonFilter,sender_user_ids:userIds.optional(),mentions_only:z.boolean().optional(),include_bot_messages:z.boolean().optional()}).strict().refine(validThreadScope,threadScopeError);
+export const deletedFilterSchema=z.object({...commonFilter,sender_user_ids:userIds.optional(),include_bot_messages:z.boolean().optional()}).strict().refine(validThreadScope,threadScopeError);
+export const reactionFilterSchema=z.object({...commonFilter,actor_user_ids:userIds.optional(),emoji_name:emojiName.optional()}).strict().refine(validThreadScope,threadScopeError);
 const commonPayload={workspace_id:z.string(),conversation_id:conversationId,message_ts:timestamp};
 export const payloadSchema=z.object({...commonPayload,
   thread_ts:timestamp,author_id:userId.nullable(),text:z.string().max(4000),
@@ -38,7 +40,9 @@ export const eventSchemas={
   'slack.reaction.removed':{filter:reactionFilterSchema,payload:reactionPayloadSchema,description:'Someone removed a reaction from a message. This bot as actor is excluded; human reactions to its messages are allowed. Unknown thread metadata cannot satisfy a thread filter.'},
 } as const;
 export const eventDefinitions=()=>eventNames.map(name=>({name,description:eventSchemas[name].description,delivery:['webhook'],
-  inputSchema:z.toJSONSchema(eventSchemas[name].filter),payloadSchema:z.toJSONSchema(eventSchemas[name].payload)}));
+  // Zod refinements are runtime-only; publish the equivalent cross-field rule.
+  inputSchema:{...z.toJSONSchema(eventSchemas[name].filter),not:{properties:{conversation_id:{const:'*'}},required:['conversation_id','thread_ts']}},
+  payloadSchema:z.toJSONSchema(eventSchemas[name].payload)}));
 type Envelope<N extends EventName,D>={eventId:string;name:N;timestamp:string;data:D;cursor:null};
 export type MessagePayload=z.infer<typeof payloadSchema>;
 export type MessageEvent=Envelope<'slack.message.created',MessagePayload>;
@@ -101,7 +105,7 @@ export function matchesEvent(event:SlackEvent,name:string,args:unknown):boolean 
   const parsed=eventSchemas[event.name].filter.safeParse(args);
   if(!parsed.success) return false;
   const filter=parsed.data;
-  if(filter.conversation_id!==event.data.conversation_id||filter.thread_ts&&filter.thread_ts!==event.data.thread_ts) return false;
+  if((filter.conversation_id!=='*'&&filter.conversation_id!==event.data.conversation_id)||filter.thread_ts&&filter.thread_ts!==event.data.thread_ts) return false;
   if(event.name==='slack.reaction.added'||event.name==='slack.reaction.removed') {
     const reaction=reactionFilterSchema.parse(filter);
     return (!reaction.actor_user_ids||reaction.actor_user_ids.includes(event.data.actor_user_id))&&

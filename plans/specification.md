@@ -5,7 +5,7 @@ Last updated: 2026-11-02
 Companion document: [Compatibility prototype plan](compatibility-prototype-plan.md)
 Next phase: [Full application implementation plan](implementation-plan.md)
 
-Approved design extension (implementation pending): [Conversation wildcard subscription addendum](conversation-wildcard-addendum.md). It defines explicit `conversation_id: "*"` support across all five event types and the corresponding access, lifecycle and compatibility rules.
+Implemented extension (native wildcard verification pending): [Conversation wildcard subscription addendum](conversation-wildcard-addendum.md). It defines explicit `conversation_id: "*"` support across all five event types and the corresponding access, lifecycle and compatibility rules.
 
 ## 1. Purpose
 
@@ -286,7 +286,9 @@ Do not expose a separate mention event initially. Represent an explicit bot ment
 
 ### Subscription filters
 
-Require `conversation_id` for each initial event subscription. This permits monitoring any supported conversation while keeping the first implementation's subscriptions narrow and explicit.
+Require `conversation_id` for each event subscription. Accept a concrete conversation ID or the literal `"*"` for all supported conversations currently accessible to this installation's bot: joined public/private channels and bot one-to-one DMs. New channels are covered as the bot joins them, without subscription refresh or a stored membership list. Group DMs and archived/unavailable conversations remain excluded. Omission, partial globs and arrays are invalid. Tools and event payloads still require concrete conversation IDs.
+
+Reject `"*"` together with `thread_ts` in both subscription validation and the advertised JSON Schema. All remaining event-specific filters apply normally; for example, a DM requires an explicit bot mention to satisfy `mentions_only: true`. Exact and wildcard subscriptions can both match an event and each receive delivery, even at the same callback URL. Deduplication remains per event/subscription pair, so overlapping automations can produce multiple replies. See the [wildcard addendum](conversation-wildcard-addendum.md) for the complete contract and acceptance criteria.
 
 - `thread_ts`: optional; match the selected root/thread, with documented inclusion of the root message.
 - `sender_user_ids`: optional for message events; match message authors. For deletions whose author cannot be resolved, do not infer a match.
@@ -313,13 +315,13 @@ Use a unique stable event ID across retries. Message text remains untrusted data
 
 ### Subscription lifecycle
 
-1. Authorize the owner, event, and conversation; validate arguments.
+1. Authorize the owner and event; validate arguments. Concrete subscriptions verify live conversation access; wildcard subscriptions verify the configured bot/workspace identity without enumerating channels. Repeat this validation on refresh.
 2. Validate the HTTPS callback and client-supplied `whsec_` secret, including decoded key length required by the OpenAI profile.
 3. Send and verify a signed, short-lived callback challenge before releasing Slack data.
 4. Persist the subscription with a deterministic identity derived from principal, callback URL, event name, and canonical JSON arguments.
 5. Return the granted expiration as `refreshBefore`, with `cursor: null` and `truncated: false` for the non-replay profile.
 6. Treat a repeated matching subscribe request as a refresh/upsert, including a 60-second active-key rotation overlap with dual signatures, capped by subscription expiry. Same-key refresh does not extend the overlap.
-7. Stop deliveries at expiration, on unsubscribe, on revoked access, or when the installation is disabled.
+7. Stop deliveries at expiration, on unsubscribe, on revoked access, or when the installation is disabled. Authorize the actual event conversation before each callback attempt. Conversation-specific access loss cancels that event's wildcard delivery without deleting the wildcard subscription or generating failure feedback for that cancelled destination; concrete subscriptions retain their existing deletion behavior. Installation revocation/mismatch and missing scopes delete the affected subscription in either case.
 8. Make unsubscribe idempotent and match the authenticated subscription identity; knowledge of a subscription ID grants no authority.
 
 Use a finite subscription lifetime with a 72-hour default. The current implementation also caps grants at 72 hours and honors shorter requested lifetimes; do not add a lifetime configuration parameter without an actual need. Honor requested lifetime limits according to the documented profile. The initial server may decline a no-expiration request by granting a finite lifetime. Expiration is enforced on every use. Delete unsubscribed/revoked records immediately and delete expired rows, including callback secrets, opportunistically during ordinary subscription operations and event handling. No history/tombstones or scheduled cleanup service is needed. Without traffic, physical deletion cannot be guaranteed at the exact expiry instant; expired rows are never eligible for delivery.
