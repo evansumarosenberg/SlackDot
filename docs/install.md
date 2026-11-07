@@ -163,7 +163,19 @@ This is verification of the endpoint, not another event-enablement step. [Slack'
 
 ## 6. Hand off to the Dot and test an owner DM
 
-The installation agent prepares the application; the intended **Dot in ChatGPT** owns the native automation. An installation Work session is not automatically the intended Dot. If the owner explicitly identifies that session as their intended Dot and it exposes native event automation controls, continue there. Otherwise use the handoff below. Do not create a Codex scheduled task or a polling schedule as a substitute.
+### Find the owner's Dot
+
+A **Dot** is OpenAI's persistent personal agent in ChatGPT, with its own name, appearance, profile and ongoing conversation. The owner may have renamed it, so its visible name need not be "Dot". It is distinct from the Slack bot created above, the SlackDot plugin, and the Codex or ChatGPT Work agent installing this application. See OpenAI's [Meet dots](https://learn.chatgpt.com/docs/dots) and [getting-started guide](https://learn.chatgpt.com/docs/dots/getting-started).
+
+To locate the handoff destination:
+
+1. Use any Dot name or conversation link already supplied by the owner. If supported browser/app access is available, inspect the owner's signed-in ChatGPT interface for the **dots** entry or their named Dot. Open its profile or conversation to identify it; do not search Slack for the Dot.
+2. Otherwise give the owner these navigation instructions: **Open ChatGPT in the desktop app or a desktop browser, open dots, and open the direct conversation with your existing named Dot. Paste the handoff prompt below there.** The ChatGPT mobile app also supports dots; mobile web does not. Use the account/workspace that owns the intended Dot and make the phase 5 plugin available there.
+3. Reuse an existing Dot. If the destination is ambiguous, ask which named Dot/account the owner intends. If dots is unavailable or setup has not been completed, point to the getting-started guide and leave phase 6 pending while the owner resolves access or setup. Preserve the completed installation.
+
+The destination is the owner's direct conversation with the Dot, not a task opened from its **Activity** view. A Work or Codex task delegated by a Dot is still an installation session. Continue in the current conversation only if the owner has identified it as their intended Dot's conversation and native event automation controls are available. Otherwise give the owner the prompt to paste there; do not claim that preparing the prompt transfers it automatically. Do not create a Codex scheduled task or a polling schedule as a substitute.
+
+### Prepare the handoff prompt
 
 Determine the human owner's Slack member ID from an authenticated Slack profile or an unambiguous profile lookup confirmed by the owner. If it cannot be established, ask for **Copy member ID** from their own Slack profile. This is the only human Slack ID needed; it is not an environment variable, and it cannot be inferred from a bot token's `user_id`. Use `slack_get_user` to verify the member and `slack_open_dm` to retrieve/open their bot DM without sending a greeting. The installation agent may do these read/setup calls if its connection is available; otherwise the Dot does them in the handoff.
 
