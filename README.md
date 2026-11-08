@@ -7,9 +7,11 @@
 
 SlackDot lets a single OpenAI Dot send and receive messages in multiple Slack workspaces. It works alongside the ChatGPT's official Slack integration, which only connects the Dot to a single workspace. SlackDot provides a bot for each additional Slack workspace, controlled via the Dot through a lightweight bridge deployed automatically on ChatGPT Sites. No external infrastructure needed!
 
-MCP 2.0 event subscriptions are supported, so the Dot can create event-triggered automations.
+MCP 2.0 event subscriptions are supported, so the Dot can create event-triggered automations for replying to messages.
 
 Start with a private conversation: DM your SlackDot bot, and your Dot replies in the same thread. You can also invite the bot to channels and ask your Dot to respond to mentions or messages from specific users.
+
+Support for attached media and files are not yet supported, but may be added in the future.
 
 ## Install with Codex or ChatGPT Work
 
