@@ -13,6 +13,8 @@ Start with a private conversation: DM your SlackDot bot, and your Dot replies in
 
 Support for attached media and files are not yet supported, but may be added in the future.
 
+To further expand your Dot's messaging capabilities, check out [Dotagram](https://github.com/evansumarosenberg/Dotagram), a companion project that provides a similar bridge for Telegram.
+
 ## Install with Codex or ChatGPT Work
 
 Use **Codex or a ChatGPT Work cloud session** with the Sites and Plugin Creator plugins available to build, deploy and configure SlackDot. You need permission to install a Slack app in your workspace. Once installation is ready, your intended **Dot in ChatGPT** will connect the plugin and create the event-triggered automation.
