@@ -38,7 +38,7 @@ The installation agent configures the remaining values. You may also need to sig
 
 To connect another Slack workspace, instruct your agent to repeat the setup with a separate Slack app, Site, and plugin. Make sure to give each installation a recognizable workspace label so your Dot uses the right connection.
 
-## Privacy
+## Privacy and Data Retention
 
-SlackDot stores event subscriptions and opaque, privacy-preserving records that suppress repeat event delivery for three hours. Expired records are removed on subsequent activity; no message content or delivery history is retained.
+Each SlackDot installation stores event subscriptions and privacy-preserving records in the database attached to the owner's ChatGPT Site. These opaque records suppress repeat event delivery for three hours. Expired records are removed on subsequent activity; no message content or delivery history is retained.
 
