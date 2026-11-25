@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1793649532757,
+      "tag": "0000_broken_white_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793661711443,
+      "tag": "0001_sweet_jack_flag",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793672343443,
+      "tag": "0002_black_cammi",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793673501046,
+      "tag": "0003_majestic_captain_flint",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793720502354,
+      "tag": "0004_dusty_ogun",
+      "breakpoints": true
+    }
+  ]
+}
